@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07100f">
+  <meta name="description" content="NexusChat — súkromný AI pracovný priestor.">
+  <title>NexusChat / AI workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css?v=20260726b">
+  <script src="assets/app.js?v=20260726b" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
+  <div class="noise" aria-hidden="true"></div>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+
+  <section id="auth-view" class="auth-view">
+    <div class="auth-stage">
+      <a class="brand brand--large" href="/nexus/">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </span>
+        <span>
+          <strong>NEXUS</strong>
+          <small>PRIVATE INTELLIGENCE</small>
+        </span>
+      </a>
+
+      <div class="auth-copy">
+        <div class="eyebrow"><span class="pulse-dot"></span> NODE 01 / ONLINE</div>
+        <h1>Myšlienky dnu.<br><em>Jasnosť von.</em></h1>
+        <p>
+          Tvoj súkromný AI pracovný priestor pre analýzu, tvorbu a rozhodnutia.
+          Konverzácie zostávajú pod tvojím účtom.
+        </p>
+        <div class="signal-card" aria-hidden="true">
+          <div class="signal-orbit signal-orbit--one"></div>
+          <div class="signal-orbit signal-orbit--two"></div>
+          <div class="signal-core">N</div>
+          <span class="signal-label signal-label--a">REASON</span>
+          <span class="signal-label signal-label--b">SYNTHESIZE</span>
+          <span class="signal-label signal-label--c">REMEMBER</span>
+        </div>
+      </div>
+
+      <div class="auth-meta">
+        <span>RAG READY</span><span>MULTI-SESSION</span><span>ENCRYPTED TLS</span>
+      </div>
+    </div>
+
+    <div class="auth-panel">
+      <div class="auth-box">
+        <div class="auth-box__header">
+          <div>
+            <span class="section-index">01</span>
+            <h2 id="auth-title">Vitaj späť</h2>
+          </div>
+          <span class="status-chip">SECURE</span>
+        </div>
+        <p id="auth-subtitle" class="muted">Prihlás sa do svojho Nexus priestoru.</p>
+
+        <div class="auth-tabs" role="tablist" aria-label="Prihlásenie alebo registrácia">
+          <button id="login-tab" class="auth-tab active" data-auth-mode="login" role="tab" aria-controls="login-form" aria-selected="true">Prihlásenie</button>
+          <button id="register-tab" class="auth-tab" data-auth-mode="register" role="tab" aria-controls="register-form" aria-selected="false" tabindex="-1">Nový účet</button>
+        </div>
+
+        <form id="login-form" class="auth-form" role="tabpanel" aria-labelledby="login-tab">
+          <label>
+            <span>E-mail</span>
+            <input name="email" type="email" autocomplete="email" placeholder="ty@example.com" spellcheck="false" required>
+          </label>
+          <label>
+            <span>Heslo</span>
+            <input name="password" type="password" autocomplete="current-password" placeholder="••••••••••" required>
+          </label>
+          <button class="button button--primary button--full" type="submit">
+            <span>Otvoriť Nexus</span><span aria-hidden="true">↗</span>
+          </button>
+        </form>
+
+        <form id="register-form" class="auth-form hidden" role="tabpanel" aria-labelledby="register-tab">
+          <label>
+            <span>Meno</span>
+            <input name="name" type="text" autocomplete="name" placeholder="Tvoje meno" minlength="2" required>
+          </label>
+          <label>
+            <span>E-mail</span>
+            <input name="email" type="email" autocomplete="email" placeholder="ty@example.com" spellcheck="false" required>
+          </label>
+          <label>
+            <span>Heslo</span>
+            <input name="password" type="password" autocomplete="new-password" placeholder="Min. 10 znakov" minlength="10" required>
+            <small>Veľké a malé písmeno, číslo, aspoň 10 znakov.</small>
+          </label>
+          <button class="button button--primary button--full" type="submit">
+            <span>Vytvoriť účet</span><span aria-hidden="true">↗</span>
+          </button>
+        </form>
+
+        <p id="auth-error" class="form-error hidden" role="alert" tabindex="-1"></p>
+        <p class="auth-footnote">Pokračovaním súhlasíš s bezpečným uložením histórie chatu na tomto serveri.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="workspace" class="workspace hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-top">
+        <a class="brand" href="/nexus/">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span><strong>NEXUS</strong><small>AI WORKSPACE</small></span>
+        </a>
+        <button id="sidebar-close" class="icon-button sidebar-close" aria-label="Zavrieť menu">×</button>
+      </div>
+
+      <button id="new-chat-button" class="new-chat-button">
+        <span class="new-chat-icon">＋</span>
+        <span id="new-chat-label">Nová konverzácia</span>
+        <kbd>N</kbd>
+      </button>
+
+      <nav class="primary-nav" aria-label="Hlavná navigácia">
+        <button class="nav-item active" data-view="chat">
+          <span class="nav-glyph">◫</span><span>Konverzácie</span>
+        </button>
+        <button id="admin-nav" class="nav-item hidden" data-view="admin">
+          <span class="nav-glyph">⌘</span><span>Administrácia</span>
+        </button>
+      </nav>
+
+      <div class="conversation-heading">
+        <span id="conversation-heading-label">NEXUS HISTÓRIA</span>
+        <span id="conversation-count">0</span>
+      </div>
+      <div id="conversation-list" class="conversation-list"></div>
+
+      <div class="sidebar-footer">
+        <div class="model-status">
+          <span class="model-led"></span>
+          <div><small>AKTÍVNY MODEL</small><strong id="sidebar-model">Nexus AI</strong></div>
+        </div>
+        <button id="user-menu-button" class="user-card" aria-expanded="false" aria-controls="user-menu">
+          <span id="user-avatar" class="avatar">U</span>
+          <span><strong id="sidebar-user-name">User</strong><small id="sidebar-user-role">Používateľ</small></span>
+          <span>⋮</span>
+        </button>
+        <div id="user-menu" class="user-menu hidden">
+          <button id="logout-button">Odhlásiť sa</button>
+        </div>
+      </div>
+    </aside>
+
+    <div id="sidebar-scrim" class="sidebar-scrim hidden" aria-hidden="true"></div>
+
+    <main id="main-content" class="main" tabindex="-1">
+      <header class="topbar">
+        <button id="sidebar-open" class="icon-button menu-button" aria-label="Otvoriť menu" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <div class="breadcrumbs"><span>NEXUS</span><b>/</b><strong id="current-section">CONVERSATION</strong></div>
+        <div class="topbar-actions">
+          <span class="privacy-pill"><span></span> PRIVATE SESSION</span>
+          <button id="delete-chat-button" class="icon-button hidden" title="Vymazať konverzáciu" aria-label="Vymazať konverzáciu">⌫</button>
+        </div>
+      </header>
+
+      <section id="chat-view" class="chat-view">
+        <div id="empty-state" class="empty-state">
+          <div class="empty-orbit" aria-hidden="true">
+            <span class="empty-orbit__ring"></span>
+            <span class="empty-orbit__ring empty-orbit__ring--two"></span>
+            <strong id="empty-agent-mark">N</strong>
+          </div>
+          <div id="empty-eyebrow" class="eyebrow">NEXUS INTELLIGENCE / READY</div>
+          <h2><span id="empty-title-lead">Čo dnes</span><br><em id="empty-title-accent">rozpletieme?</em></h2>
+          <p id="empty-description">Začni otázkou alebo si vyber jeden zo smerov.</p>
+          <div class="prompt-grid">
+            <button class="prompt-card" data-prompt="Analyzuj túto situáciu krok za krokom a navrhni tri realistické riešenia.">
+              <span>01 / ANALÝZA</span><strong>Rozlož problém</strong><small>Fakty, riziká, možnosti →</small>
+            </button>
+            <button class="prompt-card" data-prompt="Pomôž mi vytvoriť jasný plán projektu s míľnikmi, rizikami a ďalším krokom.">
+              <span>02 / PLÁN</span><strong>Navrhni postup</strong><small>Míľniky a ďalší krok →</small>
+            </button>
+            <button class="prompt-card" data-prompt="Vysvetli mi túto tému jednoducho, ale bez straty podstatných detailov.">
+              <span>03 / POCHOPENIE</span><strong>Vysvetli tému</strong><small>Jasne a bez balastu →</small>
+            </button>
+          </div>
+        </div>
+
+        <div id="conversation-stage" class="conversation-stage hidden">
+          <div class="conversation-title-row">
+            <div>
+              <span id="chat-agent-label" class="section-index">NEXUS CHAT / LIVE</span>
+              <h2 id="conversation-title">Nová konverzácia</h2>
+            </div>
+            <span id="message-count" class="status-chip">0 SPRÁV</span>
+          </div>
+          <div id="messages" class="messages" aria-live="polite"></div>
+        </div>
+
+        <div class="composer-wrap">
+          <form id="composer" class="composer">
+            <div id="agent-switcher" class="agent-switcher" aria-label="Samostatné chaty asistentov">
+              <button class="agent-option active" type="button" data-agent="general" aria-pressed="true">
+                <span>NEXUS</span><small>všeobecný asistent</small>
+              </button>
+              <button id="infra-agent-option" class="agent-option hidden" type="button" data-agent="infra" aria-pressed="false">
+                <span>INFRA</span><small>server · read-only</small>
+              </button>
+              <button id="data-agent-option" class="agent-option hidden" type="button" data-agent="data" aria-pressed="false">
+                <span>DATA</span><small>SQL · report</small>
+              </button>
+            </div>
+            <div id="infra-source-switcher" class="infra-source-switcher hidden" role="group" aria-label="Zdroj údajov Infra Agenta">
+              <span>ZDROJ INFRA</span>
+              <button class="infra-source-option active" type="button" data-infra-source="snapshot" aria-pressed="true">
+                <strong>SNAPSHOT</strong><small>posledná minúta</small>
+              </button>
+              <button id="infra-live-option" class="infra-source-option" type="button" data-infra-source="live" aria-pressed="false">
+                <strong><i></i> LIVE</strong><small>teraz · admin</small>
+              </button>
+            </div>
+            <textarea id="message-input" name="message" rows="1" maxlength="12000" placeholder="Napíš správu pre Nexus…" aria-label="Správa" autocomplete="off"></textarea>
+            <div class="composer-footer">
+              <span><kbd>Enter</kbd> odoslať · <kbd>Shift</kbd> + <kbd>Enter</kbd> nový riadok</span>
+              <button id="send-button" class="send-button" type="submit" aria-label="Odoslať správu">↑</button>
+            </div>
+          </form>
+          <p id="agent-disclaimer">Nexus môže urobiť chybu. Dôležité informácie si over.</p>
+        </div>
+      </section>
+
+      <section id="admin-view" class="admin-view hidden">
+        <div class="admin-header">
+          <div>
+            <span class="eyebrow">CONTROL PLANE / ADMIN</span>
+            <h2>Riadiace centrum</h2>
+            <p>Účty, používanie a správanie AI na jednom mieste.</p>
+          </div>
+          <span class="admin-badge">ADMIN ACCESS</span>
+        </div>
+
+        <div id="metric-grid" class="metric-grid">
+          <article><span>USERS</span><strong id="metric-users">—</strong><small>registrovaných účtov</small></article>
+          <article><span>ACTIVE</span><strong id="metric-active">—</strong><small>aktívnych účtov</small></article>
+          <article><span>CHATS</span><strong id="metric-chats">—</strong><small>konverzácií</small></article>
+          <article><span>MESSAGES</span><strong id="metric-messages">—</strong><small>uložených správ</small></article>
+        </div>
+
+        <div class="admin-grid">
+          <article class="admin-card admin-card--users">
+            <div class="card-heading">
+              <div><span class="section-index">A1</span><h3>Používatelia</h3></div>
+              <span id="users-status" class="muted">Načítavam…</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Účet</th><th>Rola</th><th>Stav</th><th>Vytvorený</th></tr></thead>
+                <tbody id="users-table"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="admin-card">
+            <div class="card-heading">
+              <div><span class="section-index">A2</span><h3>Model routing</h3></div>
+              <span id="api-status" class="status-chip">CHECKING</span>
+            </div>
+            <form id="settings-form" class="settings-form">
+              <label>
+                <span>Hlavný model</span>
+                <input id="settings-model" name="model" list="model-catalog" placeholder="openai/gpt-5.6-luna" autocomplete="off" spellcheck="false" required>
+                <datalist id="model-catalog"></datalist>
+                <small id="model-meta" class="field-note">Načítavam katalóg modelov…</small>
+              </label>
+              <label>
+                <span>Systémové inštrukcie</span>
+                <textarea id="settings-prompt" name="system_prompt" rows="7" minlength="20" required></textarea>
+              </label>
+              <button class="button button--primary" type="submit">Uložiť konfiguráciu</button>
+            </form>
+          </article>
+
+          <article class="admin-card">
+            <div class="card-heading">
+              <div><span class="section-index">A3</span><h3>Knowledge / RAG</h3></div>
+              <label class="switch"><input id="rag-enabled" name="rag_enabled" type="checkbox" aria-label="Zapnúť alebo vypnúť RAG"><span></span></label>
+            </div>
+            <p class="card-copy">Lokálna znalostná báza. Relevantné pasáže sa pripájajú k otázke a v odpovedi sa zobrazia zdroje.</p>
+            <div class="rag-controls">
+              <label>
+                <span>Max. počet pasáží</span>
+                <input id="rag-max-chunks" name="rag_max_chunks" type="number" min="1" max="12" value="4" inputmode="numeric" autocomplete="off">
+              </label>
+              <label class="file-drop" for="rag-file">
+                <strong>＋ PRIDAŤ DOKUMENT</strong>
+                <small>TXT, MD, JSON, YAML, CSV alebo LOG · max 2 MB</small>
+                <input id="rag-file" name="rag_file" type="file" accept=".txt,.md,.json,.yaml,.yml,.csv,.log">
+              </label>
+            </div>
+            <div id="rag-documents" class="document-list"></div>
+          </article>
+
+          <article class="admin-card admin-card--infra">
+            <div class="card-heading">
+              <div><span class="section-index">A4</span><h3>Infra Agent</h3></div>
+              <label class="switch"><input id="infra-enabled" name="infra_enabled" type="checkbox" aria-label="Zapnúť alebo vypnúť Infra Agenta"><span></span></label>
+            </div>
+            <p class="card-copy">Prepínateľný minútový snapshot alebo LIVE read-only kontrola. Nemá voľný shell a nevie meniť server.</p>
+            <div id="infra-snapshot-status" class="infra-status"><span></span><strong>SNAPSHOT NEDOSTUPNÝ</strong></div>
+            <div class="settings-form settings-form--compact">
+              <label>
+                <span>Infra model</span>
+                <input id="infra-model" name="infra_model" list="model-catalog" placeholder="openai/gpt-5.6-luna" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="check-row">
+                <input id="infra-admin-only" name="infra_admin_only" type="checkbox" checked>
+                <span>Iba administrátori</span>
+              </label>
+              <label class="check-row">
+                <input id="infra-live-enabled" name="infra_live_enabled" type="checkbox" checked>
+                <span>Povoliť LIVE adminom</span>
+              </label>
+            </div>
+            <div class="safety-boundary">
+              <span>READ-ONLY BOUNDARY</span>
+              <small>CPU · RAM · disk · porty · TLS · health · povolené systemd služby</small>
+            </div>
+          </article>
+
+          <article class="admin-card admin-card--data">
+            <div class="card-heading">
+              <div><span class="section-index">A5</span><h3>SQL Report Agent</h3></div>
+              <label class="switch"><input id="data-enabled" name="data_enabled" type="checkbox" aria-label="Zapnúť alebo vypnúť SQL Report Agenta"><span></span></label>
+            </div>
+            <div class="data-agent-layout">
+              <div>
+                <p class="card-copy">Z otázky vytvorí read-only SQL, vykoná ho nad izolovanou fiktívnou databázou a vráti hotový manažérsky report.</p>
+                <div class="settings-form settings-form--compact">
+                  <label>
+                    <span>Data model</span>
+                    <input id="data-model" name="data_model" list="model-catalog" placeholder="openai/gpt-5.6-luna" autocomplete="off" spellcheck="false">
+                  </label>
+                  <label class="check-row">
+                    <input id="data-admin-only" name="data_admin_only" type="checkbox">
+                    <span>Iba administrátori</span>
+                  </label>
+                </div>
+                <div class="safety-boundary safety-boundary--amber">
+                  <span>SYNTHETIC / QUERY-ONLY</span>
+                  <small>Žiadne reálne účty ani chaty · SELECT/WITH · max 100 riadkov · časový limit</small>
+                </div>
+              </div>
+              <div>
+                <span class="field-label">Fiktívna schéma</span>
+                <div id="data-schema-tables" class="schema-table-list"></div>
+                <div class="data-examples">
+                  <span>SKÚS SA OPÝTAŤ</span>
+                  <small>„Porovnaj tržby podľa krajín a segmentov.“</small>
+                  <small>„Ktoré produkty majú najvyššiu maržu?“</small>
+                  <small>„Sprav SLA report support ticketov.“</small>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </section>
+</body>
+</html>

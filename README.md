@@ -164,4 +164,3 @@ docs/             architecture, security, and deployment notes
 - Run the web service as an unprivileged user.
 - Do not grant the LIVE Infra agent an unrestricted shell or sudo access.
 - Review and adapt the fixed service names and health endpoints in `nexus/infra.py` for your host.
-
