@@ -15,6 +15,8 @@ def test_spa_shell_is_served(client):
     assert 'id="admin-user-email"' not in response.text
     assert 'name="identifier"' in response.text
     assert "crypto.getRandomValues" in client.get("/assets/app.js").text
+    assert 'assets/app.js?v=20260804c' in response.text
+    assert 'assets/styles.css?v=20260804c' in response.text
     assert 'id="rag-drop"' in response.text
     assert 'id="rag-file"' in response.text
     assert "multiple" in response.text
@@ -33,6 +35,9 @@ def test_security_headers_and_host_validation(client):
 
     api_response = client.get("/api/auth/me")
     assert api_response.headers["cache-control"] == "no-store"
+
+    asset_response = client.get("/assets/app.js")
+    assert asset_response.headers["cache-control"] == "no-cache"
 
     rejected = client.get("/", headers={"host": "attacker.example"})
     assert rejected.status_code == 400

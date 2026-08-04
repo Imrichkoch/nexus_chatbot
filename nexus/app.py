@@ -242,6 +242,8 @@ def create_app(
         )
         if request.url.path == "/" or request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     def current_user(
