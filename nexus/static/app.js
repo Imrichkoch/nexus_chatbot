@@ -1,5 +1,9 @@
 const basePath = window.location.pathname.startsWith("/nexus") ? "/nexus" : "";
 const apiBase = `${basePath}/api`;
+const RAG_MAX_FILES_PER_BATCH = 50;
+const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
+const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
+const RAG_UPLOAD_CONCURRENCY = 4;
 
 const state = {
   user: null,
@@ -22,6 +26,7 @@ const state = {
   models: [],
   settingsSaving: false,
   settingsQueued: false,
+  ragUploading: false,
 };
 
 const AGENT_WORKSPACES = {
@@ -984,22 +989,78 @@ function renderInfraStatus(status) {
     : "SNAPSHOT NEDOSTUPNÝ";
 }
 
-async function uploadRagDocument(file) {
-  if (!file) return;
-  if (file.size > 2_000_000) {
-    toast("Dokument je väčší ako 2 MB.", "error");
+async function uploadRagDocuments(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  if (state.ragUploading) {
+    toast("Predchádzajúca dávka sa ešte nahráva.", "error");
     return;
   }
-  try {
-    await api("/admin/rag/documents", {
-      method: "POST",
-      body: JSON.stringify({ name: file.name, content: await file.text() }),
-    });
-    toast("Dokument bol pridaný do znalostnej bázy.");
+  if (files.length > RAG_MAX_FILES_PER_BATCH) {
+    toast(`Naraz môžeš pridať najviac ${RAG_MAX_FILES_PER_BATCH} súborov.`, "error");
     $("#rag-file").value = "";
+    return;
+  }
+  const oversized = files.find((file) => file.size > RAG_MAX_FILE_BYTES);
+  if (oversized) {
+    toast(`${oversized.name} je väčší ako 10 MB.`, "error");
+    $("#rag-file").value = "";
+    return;
+  }
+  const totalBytes = files.reduce((total, file) => total + file.size, 0);
+  if (totalBytes > RAG_MAX_BATCH_BYTES) {
+    toast("Celá dávka je väčšia ako 50 MB. Rozdeľ ju na viac uploadov.", "error");
+    $("#rag-file").value = "";
+    return;
+  }
+
+  const drop = $("#rag-drop");
+  const status = $("#rag-upload-status");
+  const queue = [...files];
+  const failures = [];
+  let completed = 0;
+  state.ragUploading = true;
+  drop.classList.add("uploading");
+  status.textContent = `Nahrávam 0/${files.length}…`;
+
+  async function worker() {
+    while (queue.length) {
+      const file = queue.shift();
+      try {
+        await api("/admin/rag/documents", {
+          method: "POST",
+          body: JSON.stringify({ name: file.name, content: await file.text() }),
+        });
+      } catch (error) {
+        failures.push({ name: file.name, message: error.message });
+      } finally {
+        completed += 1;
+        status.textContent = `Nahrávam ${completed}/${files.length}…`;
+      }
+    }
+  }
+
+  try {
+    await Promise.all(
+      Array.from(
+        { length: Math.min(RAG_UPLOAD_CONCURRENCY, files.length) },
+        () => worker(),
+      ),
+    );
+    const succeeded = files.length - failures.length;
+    status.textContent = failures.length
+      ? `Hotovo: ${succeeded} pridaných · ${failures.length} zlyhalo`
+      : `Hotovo: ${succeeded} súborov pridaných`;
+    if (failures.length) {
+      toast(`${failures[0].name}: ${failures[0].message}`, "error");
+    } else {
+      toast(`${succeeded} súborov bolo pridaných do znalostnej bázy.`);
+    }
     renderDocuments((await api("/admin/rag/documents")).documents);
-  } catch (error) {
-    toast(error.message, "error");
+  } finally {
+    state.ragUploading = false;
+    $("#rag-file").value = "";
+    drop.classList.remove("uploading", "dragging");
   }
 }
 
@@ -1071,6 +1132,30 @@ async function updateUser(id, changes) {
   } catch (error) {
     toast(error.message, "error");
     loadAdmin();
+  }
+}
+
+async function createAdminUser(form) {
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  try {
+    const data = new FormData(form);
+    const created = await api("/admin/users", {
+      method: "POST",
+      body: JSON.stringify({
+        name: data.get("name"),
+        email: data.get("email"),
+        password: data.get("password"),
+        role: data.get("role"),
+      }),
+    });
+    form.reset();
+    toast(`${created.role === "admin" ? "Admin" : "Používateľ"} ${created.email} bol vytvorený.`);
+    await loadAdmin();
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1249,6 +1334,10 @@ function bindEvents() {
     event.preventDefault();
     saveSettings(event.currentTarget);
   });
+  $("#admin-user-create-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    createAdminUser(event.currentTarget);
+  });
   $$(".agent-option").forEach((option) =>
     option.addEventListener("click", () => selectAgent(option.dataset.agent)),
   );
@@ -1271,8 +1360,29 @@ function bindEvents() {
     (selector) => $(selector).addEventListener("change", () => saveSettings($("#settings-form"))),
   );
   $("#rag-file").addEventListener("change", (event) =>
-    uploadRagDocument(event.target.files[0]),
+    uploadRagDocuments(event.target.files),
   );
+  const ragDrop = $("#rag-drop");
+  ["dragenter", "dragover"].forEach((eventName) =>
+    ragDrop.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      ragDrop.classList.add("dragging");
+    }),
+  );
+  ["dragleave", "drop"].forEach((eventName) =>
+    ragDrop.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      ragDrop.classList.remove("dragging");
+    }),
+  );
+  ragDrop.addEventListener("drop", (event) =>
+    uploadRagDocuments(event.dataTransfer.files),
+  );
+  ragDrop.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    $("#rag-file").click();
+  });
   $("#logout-button").addEventListener("click", () => logout());
   $("#user-menu-button").addEventListener("click", () =>
     setUserMenu($("#user-menu").classList.contains("hidden")),

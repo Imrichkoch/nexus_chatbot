@@ -22,6 +22,14 @@ The service has five principal boundaries:
 4. The system instructions, optional knowledge context, and recent messages are sent to the model provider.
 5. The user and assistant messages are committed in one SQLite transaction.
 
+### RAG ingestion
+
+Administrators can select or drag up to 50 files per batch. The browser validates a
+10 MiB per-file limit and a 50 MiB batch limit, then uploads up to four documents in
+parallel. Each document is independently validated and committed, so one rejected
+file does not roll back successful files from the same selection. The application
+does not impose a global document-count ceiling.
+
 ### Infra assistant
 
 Infra uses the same isolated `infra` conversation history with one of two data sources:

@@ -29,6 +29,57 @@ def test_admin_can_view_metrics_and_disable_user(client):
     assert overview["users_active"] == 1
 
 
+def test_admin_can_create_user_and_admin_accounts(client):
+    assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
+
+    created_user = client.post(
+        "/api/admin/users",
+        json={
+            "name": "Support User",
+            "email": "support@example.test",
+            "password": "SupportPass2026",
+            "role": "user",
+        },
+    )
+    created_admin = client.post(
+        "/api/admin/users",
+        json={
+            "name": "Operations Admin",
+            "email": "operations@example.test",
+            "password": "OperationsPass2026",
+            "role": "admin",
+        },
+    )
+
+    assert created_user.status_code == 201
+    assert created_user.json()["role"] == "user"
+    assert created_admin.status_code == 201
+    assert created_admin.json()["role"] == "admin"
+    assert "password_hash" not in created_admin.json()
+
+    client.post("/api/auth/logout")
+    assert login(client, "operations@example.test", "OperationsPass2026").status_code == 200
+
+
+def test_regular_user_cannot_create_accounts_and_admin_validates_input(client):
+    assert register(client).status_code == 201
+    payload = {
+        "name": "Blocked Admin",
+        "email": "blocked@example.test",
+        "password": "BlockedPass2026",
+        "role": "admin",
+    }
+    assert client.post("/api/admin/users", json=payload).status_code == 403
+
+    client.post("/api/auth/logout")
+    assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
+    payload["password"] = "weak"
+    assert client.post("/api/admin/users", json=payload).status_code == 422
+    payload["password"] = "BlockedPass2026"
+    payload["email"] = "not-an-email"
+    assert client.post("/api/admin/users", json=payload).status_code == 422
+
+
 def test_admin_cannot_disable_or_demote_self(client):
     assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
     me = client.get("/api/auth/me").json()["user"]
@@ -124,7 +175,7 @@ def test_rag_rejects_unsupported_or_oversized_documents(client):
     )
     oversized = client.post(
         "/api/admin/rag/documents",
-        json={"name": "huge.txt", "content": "x" * 2_000_001},
+        json={"name": "huge.txt", "content": "x" * (10 * 1024 * 1024 + 1)},
     )
 
     assert unsupported.status_code == 422

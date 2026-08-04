@@ -256,6 +256,13 @@
               <div><span class="section-index">A1</span><h3>Používatelia</h3></div>
               <span id="users-status" class="muted">Načítavam…</span>
             </div>
+            <form id="admin-user-create-form" class="admin-user-create-form">
+              <label><span>Meno</span><input id="admin-user-name" name="name" minlength="2" maxlength="80" autocomplete="off" required></label>
+              <label><span>E-mail</span><input id="admin-user-email" name="email" type="email" maxlength="180" autocomplete="off" required></label>
+              <label><span>Dočasné heslo</span><input id="admin-user-password" name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required><small>Min. 10 znakov, veľké a malé písmeno, číslo</small></label>
+              <label><span>Rola</span><select id="admin-user-role" name="role"><option value="user">USER</option><option value="admin">ADMIN</option></select></label>
+              <button class="button button--primary" type="submit">＋ Vytvoriť účet</button>
+            </form>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Účet</th><th>Rola</th><th>Stav</th><th>Vytvorený</th></tr></thead>
@@ -295,12 +302,13 @@
                 <span>Max. počet pasáží</span>
                 <input id="rag-max-chunks" name="rag_max_chunks" type="number" min="1" max="12" value="4" inputmode="numeric" autocomplete="off">
               </label>
-              <label class="file-drop" for="rag-file">
-                <strong>＋ PRIDAŤ DOKUMENT</strong>
-                <small>TXT, MD, JSON, YAML, CSV alebo LOG · max 2 MB</small>
-                <input id="rag-file" name="rag_file" type="file" accept=".txt,.md,.json,.yaml,.yml,.csv,.log">
+              <label id="rag-drop" class="file-drop" for="rag-file" tabindex="0">
+                <strong>＋ PRIDAŤ ALEBO PRETIAHNUŤ SÚBORY</strong>
+                <small>TXT, MD, JSON, YAML, CSV alebo LOG · max 50 naraz · 10 MB/súbor</small>
+                <input id="rag-file" name="rag_file" type="file" accept=".txt,.md,.json,.yaml,.yml,.csv,.log" multiple>
               </label>
             </div>
+            <p id="rag-upload-status" class="rag-upload-status" aria-live="polite"></p>
             <div id="rag-documents" class="document-list"></div>
           </article>
 

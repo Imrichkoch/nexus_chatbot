@@ -5,15 +5,15 @@ from pathlib import Path
 
 
 ALLOWED_EXTENSIONS = {".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log"}
-MAX_DOCUMENT_CHARS = 2_000_000
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 
 def validate_document(name: str, content: str) -> tuple[str, str]:
     clean_name = Path(name.strip()).name
     if not clean_name or Path(clean_name).suffix.lower() not in ALLOWED_EXTENSIONS:
         raise ValueError("Podporované sú iba TXT, MD, JSON, YAML, CSV a LOG súbory.")
-    if len(content) > MAX_DOCUMENT_CHARS:
-        raise OverflowError("Dokument je väčší ako povolené 2 MB.")
+    if len(content.encode("utf-8")) > MAX_DOCUMENT_BYTES:
+        raise OverflowError("Dokument je väčší ako povolených 10 MB.")
     clean_content = content.replace("\x00", "").strip()
     if not clean_content:
         raise ValueError("Dokument je prázdny.")

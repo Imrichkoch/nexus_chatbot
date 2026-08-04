@@ -62,6 +62,13 @@ class UserUpdatePayload(BaseModel):
     is_active: bool | None = None
 
 
+class AdminUserCreatePayload(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    email: str = Field(min_length=5, max_length=180)
+    password: str = Field(min_length=1, max_length=128)
+    role: Literal["user", "admin"] = "user"
+
+
 class SettingsPayload(BaseModel):
     model: str = Field(min_length=3, max_length=80)
     system_prompt: str = Field(min_length=20, max_length=4000)
@@ -115,6 +122,23 @@ def valid_password(password: str) -> bool:
         and any(character.isupper() for character in password)
         and any(character.isdigit() for character in password)
     )
+
+
+def validate_account(name: str, email: str, password: str) -> tuple[str, str]:
+    clean_name = name.strip()
+    if len(clean_name) < 2:
+        raise HTTPException(status_code=422, detail="Meno musí mať aspoň 2 znaky.")
+    clean_email = email.strip().lower()
+    if not EMAIL_PATTERN.match(clean_email):
+        raise HTTPException(status_code=422, detail="Neplatná e-mailová adresa.")
+    if not valid_password(password):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Heslo musí mať aspoň 10 znakov, veľké a malé písmeno a číslo."
+            ),
+        )
+    return clean_name, clean_email
 
 
 def create_app(
@@ -245,22 +269,7 @@ def create_app(
                 status_code=429,
                 detail="Príliš veľa registrácií. Skús to neskôr.",
             )
-        name = payload.name.strip()
-        if len(name) < 2:
-            raise HTTPException(
-                status_code=422,
-                detail="Meno musí mať aspoň 2 znaky.",
-            )
-        email = payload.email.strip().lower()
-        if not EMAIL_PATTERN.match(email):
-            raise HTTPException(status_code=422, detail="Neplatná e-mailová adresa.")
-        if not valid_password(payload.password):
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Heslo musí mať aspoň 10 znakov, veľké a malé písmeno a číslo."
-                ),
-            )
+        name, email = validate_account(payload.name, payload.email, payload.password)
         try:
             user = app.state.store.create_user(
                 name=name,
@@ -559,6 +568,31 @@ def create_app(
     @app.get("/api/admin/users")
     def admin_users(user: dict[str, Any] = Depends(admin_user)):
         return app.state.store.list_users()
+
+    @app.post("/api/admin/users", status_code=201)
+    def admin_create_user(
+        payload: AdminUserCreatePayload,
+        actor: dict[str, Any] = Depends(admin_user),
+    ):
+        name, email = validate_account(payload.name, payload.email, payload.password)
+        try:
+            created = app.state.store.create_user(
+                name=name,
+                email=email,
+                password=payload.password,
+                role=payload.role,
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409,
+                detail="Účet s týmto e-mailom už existuje.",
+            )
+        app.state.store.audit(
+            actor["id"],
+            "user.create",
+            f"user:{created['id']}:role:{created['role']}",
+        )
+        return created
 
     @app.patch("/api/admin/users/{user_id}")
     def admin_update_user(

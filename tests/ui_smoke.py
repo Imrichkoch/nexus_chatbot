@@ -76,14 +76,53 @@ def run() -> None:
             "toasts": desktop.locator(".toast").all_inner_texts(),
             "schema": desktop.locator("#data-schema-tables").inner_text(),
         }
+        desktop.locator("#admin-user-name").fill("UI Operations")
+        desktop.locator("#admin-user-email").fill("ui-operations@example.test")
+        desktop.locator("#admin-user-password").fill("UiOperationsPass2026")
+        desktop.locator("#admin-user-role").select_option("admin")
+        desktop.locator("#admin-user-create-form button[type=submit]").click()
+        created_account = desktop.locator("#users-table").get_by_text(
+            "ui-operations@example.test", exact=True
+        )
+        created_account.wait_for(state="visible")
         desktop.locator("#rag-file").set_input_files(
-            {
-                "name": "ui-runbook.md",
-                "mimeType": "text/markdown",
-                "buffer": b"# Nexus\nNexus health endpoint is /health.",
-            }
+            [
+                {
+                    "name": "ui-runbook.md",
+                    "mimeType": "text/markdown",
+                    "buffer": b"# Nexus\nNexus health endpoint is /health.",
+                },
+                {
+                    "name": "ui-policy.txt",
+                    "mimeType": "text/plain",
+                    "buffer": b"Production changes require an approved maintenance window.",
+                },
+            ]
         )
         desktop.get_by_text("ui-runbook.md", exact=True).wait_for(state="visible")
+        desktop.get_by_text("ui-policy.txt", exact=True).wait_for(state="visible")
+        desktop.locator("#rag-drop").evaluate(
+            """drop => {
+              const data = new DataTransfer();
+              data.items.add(new File(
+                ['Database restore steps are tested quarterly.'],
+                'ui-dropped-runbook.md',
+                {type: 'text/markdown'}
+              ));
+              drop.dispatchEvent(new DragEvent('dragenter', {
+                bubbles: true, cancelable: true, dataTransfer: data
+              }));
+              if (!drop.classList.contains('dragging')) {
+                throw new Error('Drop target did not enter dragging state');
+              }
+              drop.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: data
+              }));
+            }"""
+        )
+        desktop.get_by_text("ui-dropped-runbook.md", exact=True).wait_for(
+            state="visible"
+        )
         desktop.locator(".admin-card--infra .switch").click()
         desktop.locator('.nav-item[data-view="chat"]').click()
         desktop.locator("#infra-agent-option").wait_for(state="visible")

@@ -8,6 +8,11 @@ def test_spa_shell_is_served(client):
     assert 'id="admin-view"' in response.text
     assert 'id="infra-source-switcher"' in response.text
     assert 'data-infra-source="live"' in response.text
+    assert 'id="admin-user-create-form"' in response.text
+    assert 'id="admin-user-role"' in response.text
+    assert 'id="rag-drop"' in response.text
+    assert 'id="rag-file"' in response.text
+    assert "multiple" in response.text
 
 
 def test_security_headers_and_host_validation(client):

@@ -913,6 +913,35 @@ kbd {
 .admin-grid { display: grid; grid-template-columns: 1.5fr .8fr; gap: 10px; align-items: start; }
 .admin-card { padding: 24px; border: 1px solid var(--line); background: var(--surface); }
 .card-heading h3 { margin: 6px 0 0; font-family: var(--display); font-size: 21px; text-transform: uppercase; }
+.admin-user-create-form {
+  margin-top: 20px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 1.25fr .65fr auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid rgba(168,255,120,.18);
+  background: rgba(168,255,120,.025);
+}
+.admin-user-create-form label > span,
+.admin-user-create-form label > small { display: block; }
+.admin-user-create-form label > span {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.admin-user-create-form label > small {
+  margin-top: 5px;
+  color: #65766c;
+  font-size: 7px;
+  line-height: 1.35;
+}
+.admin-user-create-form input,
+.admin-user-create-form select { width: 100%; }
+.admin-user-create-form button { min-height: 44px; white-space: nowrap; }
 .table-wrap { margin-top: 22px; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th { padding: 10px; color: #617067; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 8px; letter-spacing: .1em; text-align: left; }
@@ -983,7 +1012,12 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
   cursor: pointer;
   text-align: center;
 }
-.file-drop:focus-within { border-color: var(--acid); box-shadow: 0 0 0 3px rgba(168,255,120,.08); }
+.file-drop:focus-within, .file-drop:focus-visible, .file-drop.dragging {
+  border-color: var(--acid);
+  box-shadow: 0 0 0 3px rgba(168,255,120,.08);
+  background: rgba(168,255,120,.08);
+}
+.file-drop.uploading { cursor: wait; opacity: .72; }
 .file-drop strong { font-family: var(--mono); font-size: 9px; letter-spacing: .08em; }
 .file-drop small { margin-top: 5px; color: var(--muted); font-size: 8px; }
 .file-drop input {
@@ -993,6 +1027,14 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
   min-height: 0;
   padding: 0;
   opacity: 0;
+}
+.rag-upload-status {
+  min-height: 15px;
+  margin: 8px 0 0;
+  color: var(--mint);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: .04em;
 }
 .document-list { margin-top: 16px; display: grid; }
 .document-row {
@@ -1165,7 +1207,7 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
   .metric-grid article { min-height: 115px; }
   .metric-grid strong { font-size: 32px; }
   .admin-card { padding: 18px 12px; }
-  .rag-controls, .settings-form--compact { grid-template-columns: 1fr; }
+  .rag-controls, .settings-form--compact, .admin-user-create-form { grid-template-columns: 1fr; }
   .data-agent-layout, .schema-table-list { grid-template-columns: 1fr; }
   .agent-option { min-width: 0; flex: 1; }
   .agent-option small { display: none; }

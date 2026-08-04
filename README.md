@@ -12,12 +12,12 @@ Live deployment: [raizenko.cloud/nexus](https://raizenko.cloud/nexus/)
 - Separate **Nexus**, **Infra**, and **Data** conversations and histories
 - OpenAI Responses API support plus OpenAI-compatible Chat Completions endpoints
 - Configurable model routing for each agent
-- Local SQLite FTS5 retrieval-augmented generation (RAG)
+- Local SQLite FTS5 retrieval-augmented generation (RAG) with drag-and-drop multi-file ingestion
 - Sanitized infrastructure snapshot refreshed by a hardened systemd timer
 - Admin-only LIVE Infra checks with a fixed read-only collector and audit logging
 - Synthetic commerce database with natural-language-to-SQL reporting
 - SQLite authorizer, query-only mode, time limit, row limit, and function denylist
-- Admin control plane for users, models, RAG, and agent access policies
+- Admin control plane for creating and managing user/admin accounts, models, RAG, and agent access policies
 - Responsive desktop/mobile interface with accessible navigation and status controls
 - Atomic user/assistant turn persistence and automatic legacy chat migration
 
