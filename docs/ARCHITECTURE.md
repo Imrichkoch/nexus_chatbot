@@ -60,7 +60,7 @@ Older databases are migrated automatically. If one legacy conversation contains 
 
 | Table | Responsibility |
 | --- | --- |
-| `users` | Account identity, bcrypt hash, role, activation state |
+| `users` | E-mail or admin-created username identity, bcrypt hash, role, activation state |
 | `sessions` | SHA-256 hashes of opaque session tokens and expiry |
 | `conversations` | Owner, workspace mode, title, timestamps |
 | `messages` | Role, content, model, usage, structured source metadata |

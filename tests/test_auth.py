@@ -46,6 +46,24 @@ def test_login_logout_and_invalid_credentials(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
+def test_login_accepts_username_or_legacy_email(client, app):
+    app.state.store.create_user(
+        name="Named Login",
+        username="Named Login",
+        email="internal-login@nexus.invalid",
+        password="NamedLoginPass2026",
+    )
+
+    by_name = client.post(
+        "/api/auth/login",
+        json={"identifier": "Named Login", "password": "NamedLoginPass2026"},
+    )
+    assert by_name.status_code == 200
+    client.post("/api/auth/logout")
+
+    assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
+
+
 def test_disabled_user_cannot_log_in(client, app):
     assert register(client).status_code == 201
     user = app.state.store.get_user_by_email("user@example.test")

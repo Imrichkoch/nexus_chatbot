@@ -5,6 +5,10 @@ NexusChat is designed for a small private deployment. The controls below reduce 
 ## Authentication and sessions
 
 - Passwords are hashed with bcrypt; plaintext passwords are never stored.
+- Administrator-created accounts use a unique username and require no user e-mail;
+  legacy and self-registered accounts continue to accept their e-mail address.
+- Browser-generated temporary passwords use `crypto.getRandomValues()` and include
+  upper-case, lower-case, numeric, and symbol characters.
 - Sessions use cryptographically random bearer tokens.
 - Only a SHA-256 token hash is persisted in SQLite.
 - Cookies are HTTP-only, `SameSite=Lax`, and `Secure` in the production configuration.

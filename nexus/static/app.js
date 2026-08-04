@@ -1085,7 +1085,9 @@ function renderUsers(users) {
     identity.innerHTML = `<div class="user-cell"><span class="avatar"></span><span><strong></strong><small></small></span></div>`;
     identity.querySelector(".avatar").textContent = user.name.charAt(0).toUpperCase();
     identity.querySelector("strong").textContent = user.name;
-    identity.querySelector("small").textContent = user.email;
+    identity.querySelector("small").textContent = user.username
+      ? `Prihlásenie: ${user.username}`
+      : user.email;
 
     const roleCell = document.createElement("td");
     roleCell.dataset.label = "Rola";
@@ -1144,18 +1146,68 @@ async function createAdminUser(form) {
       method: "POST",
       body: JSON.stringify({
         name: data.get("name"),
-        email: data.get("email"),
         password: data.get("password"),
         role: data.get("role"),
       }),
     });
     form.reset();
-    toast(`${created.role === "admin" ? "Admin" : "Používateľ"} ${created.email} bol vytvorený.`);
+    $("#admin-user-password-copy").disabled = true;
+    toast(`${created.role === "admin" ? "Admin" : "Používateľ"} ${created.name} bol vytvorený.`);
     await loadAdmin();
   } catch (error) {
     toast(error.message, "error");
   } finally {
     button.disabled = false;
+  }
+}
+
+function secureRandomIndex(length) {
+  const values = new Uint32Array(1);
+  const ceiling = Math.floor(0x100000000 / length) * length;
+  do {
+    crypto.getRandomValues(values);
+  } while (values[0] >= ceiling);
+  return values[0] % length;
+}
+
+function generateSecurePassword(length = 18) {
+  const groups = [
+    "ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "abcdefghijkmnopqrstuvwxyz",
+    "23456789",
+    "!@#$%*-_+",
+  ];
+  const alphabet = groups.join("");
+  const characters = groups.map((group) => group[secureRandomIndex(group.length)]);
+  while (characters.length < length) {
+    characters.push(alphabet[secureRandomIndex(alphabet.length)]);
+  }
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = secureRandomIndex(index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+  }
+  return characters.join("");
+}
+
+function generateAdminPassword() {
+  const input = $("#admin-user-password");
+  input.value = generateSecurePassword();
+  $("#admin-user-password-copy").disabled = false;
+  input.focus();
+  input.select();
+  toast("Bezpečné heslo bolo vygenerované.");
+}
+
+async function copyAdminPassword() {
+  const input = $("#admin-user-password");
+  if (!input.value) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    toast("Heslo bolo skopírované.");
+  } catch {
+    input.focus();
+    input.select();
+    toast("Heslo je označené. Skopíruj ho klávesmi Ctrl+C.");
   }
 }
 
@@ -1337,6 +1389,11 @@ function bindEvents() {
   $("#admin-user-create-form").addEventListener("submit", (event) => {
     event.preventDefault();
     createAdminUser(event.currentTarget);
+  });
+  $("#admin-user-password-generate").addEventListener("click", generateAdminPassword);
+  $("#admin-user-password-copy").addEventListener("click", copyAdminPassword);
+  $("#admin-user-password").addEventListener("input", (event) => {
+    $("#admin-user-password-copy").disabled = !event.target.value;
   });
   $$(".agent-option").forEach((option) =>
     option.addEventListener("click", () => selectAgent(option.dataset.agent)),

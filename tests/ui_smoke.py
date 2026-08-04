@@ -55,7 +55,7 @@ def run() -> None:
             full_page=True,
         )
 
-        desktop.locator("#login-form input[name=email]").fill("ui-admin@example.test")
+        desktop.locator("#login-form input[name=identifier]").fill("ui-admin@example.test")
         desktop.locator("#login-form input[name=password]").fill("UiAdminPass!2026")
         desktop.locator("#login-form button[type=submit]").click()
         desktop.locator("#workspace").wait_for(state="visible")
@@ -77,12 +77,17 @@ def run() -> None:
             "schema": desktop.locator("#data-schema-tables").inner_text(),
         }
         desktop.locator("#admin-user-name").fill("UI Operations")
-        desktop.locator("#admin-user-email").fill("ui-operations@example.test")
-        desktop.locator("#admin-user-password").fill("UiOperationsPass2026")
+        desktop.locator("#admin-user-password-generate").click()
+        generated_password = desktop.locator("#admin-user-password").input_value()
+        assert len(generated_password) == 18
+        assert any(character.islower() for character in generated_password)
+        assert any(character.isupper() for character in generated_password)
+        assert any(character.isdigit() for character in generated_password)
+        assert desktop.locator("#admin-user-password-copy").is_enabled()
         desktop.locator("#admin-user-role").select_option("admin")
         desktop.locator("#admin-user-create-form button[type=submit]").click()
         created_account = desktop.locator("#users-table").get_by_text(
-            "ui-operations@example.test", exact=True
+            "Prihlásenie: UI Operations", exact=True
         )
         created_account.wait_for(state="visible")
         desktop.locator("#rag-file").set_input_files(

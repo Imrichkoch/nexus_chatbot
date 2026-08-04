@@ -69,8 +69,8 @@
 
         <form id="login-form" class="auth-form" role="tabpanel" aria-labelledby="login-tab">
           <label>
-            <span>E-mail</span>
-            <input name="email" type="email" autocomplete="email" placeholder="ty@example.com" spellcheck="false" required>
+            <span>Meno alebo e-mail</span>
+            <input name="identifier" type="text" autocomplete="username" placeholder="Tvoje meno alebo e-mail" spellcheck="false" required>
           </label>
           <label>
             <span>Heslo</span>
@@ -257,11 +257,22 @@
               <span id="users-status" class="muted">Načítavam…</span>
             </div>
             <form id="admin-user-create-form" class="admin-user-create-form">
-              <label><span>Meno</span><input id="admin-user-name" name="name" minlength="2" maxlength="80" autocomplete="off" required></label>
-              <label><span>E-mail</span><input id="admin-user-email" name="email" type="email" maxlength="180" autocomplete="off" required></label>
-              <label><span>Dočasné heslo</span><input id="admin-user-password" name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required><small>Min. 10 znakov, veľké a malé písmeno, číslo</small></label>
-              <label><span>Rola</span><select id="admin-user-role" name="role"><option value="user">USER</option><option value="admin">ADMIN</option></select></label>
-              <button class="button button--primary" type="submit">＋ Vytvoriť účet</button>
+              <div class="admin-user-create-fields">
+                <label><span>Prihlasovacie meno</span><input id="admin-user-name" name="name" minlength="2" maxlength="80" autocomplete="off" placeholder="Napr. Ján Novák" required></label>
+                <label class="admin-password-field">
+                  <span>Dočasné heslo</span>
+                  <span class="admin-password-control">
+                    <input id="admin-user-password" name="password" type="text" minlength="10" maxlength="128" autocomplete="new-password" spellcheck="false" placeholder="Vytvor alebo vygeneruj heslo" required>
+                    <button id="admin-user-password-generate" class="field-action" type="button">GENEROVAŤ</button>
+                    <button id="admin-user-password-copy" class="field-action" type="button" disabled>KOPÍROVAŤ</button>
+                  </span>
+                </label>
+                <label><span>Rola</span><select id="admin-user-role" name="role"><option value="user">USER</option><option value="admin">ADMIN</option></select></label>
+              </div>
+              <div class="admin-user-create-actions">
+                <small>Meno sa používa na prihlásenie. E-mail nie je potrebný.</small>
+                <button class="button button--primary" type="submit">＋ Vytvoriť účet</button>
+              </div>
             </form>
             <div class="table-wrap">
               <table>

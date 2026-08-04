@@ -36,7 +36,6 @@ def test_admin_can_create_user_and_admin_accounts(client):
         "/api/admin/users",
         json={
             "name": "Support User",
-            "email": "support@example.test",
             "password": "SupportPass2026",
             "role": "user",
         },
@@ -45,7 +44,6 @@ def test_admin_can_create_user_and_admin_accounts(client):
         "/api/admin/users",
         json={
             "name": "Operations Admin",
-            "email": "operations@example.test",
             "password": "OperationsPass2026",
             "role": "admin",
         },
@@ -53,19 +51,23 @@ def test_admin_can_create_user_and_admin_accounts(client):
 
     assert created_user.status_code == 201
     assert created_user.json()["role"] == "user"
+    assert created_user.json()["username"] == "Support User"
+    assert created_user.json()["email"] is None
     assert created_admin.status_code == 201
     assert created_admin.json()["role"] == "admin"
     assert "password_hash" not in created_admin.json()
 
     client.post("/api/auth/logout")
-    assert login(client, "operations@example.test", "OperationsPass2026").status_code == 200
+    assert client.post(
+        "/api/auth/login",
+        json={"identifier": "Operations Admin", "password": "OperationsPass2026"},
+    ).status_code == 200
 
 
 def test_regular_user_cannot_create_accounts_and_admin_validates_input(client):
     assert register(client).status_code == 201
     payload = {
         "name": "Blocked Admin",
-        "email": "blocked@example.test",
         "password": "BlockedPass2026",
         "role": "admin",
     }
@@ -76,8 +78,8 @@ def test_regular_user_cannot_create_accounts_and_admin_validates_input(client):
     payload["password"] = "weak"
     assert client.post("/api/admin/users", json=payload).status_code == 422
     payload["password"] = "BlockedPass2026"
-    payload["email"] = "not-an-email"
-    assert client.post("/api/admin/users", json=payload).status_code == 422
+    assert client.post("/api/admin/users", json=payload).status_code == 201
+    assert client.post("/api/admin/users", json=payload).status_code == 409
 
 
 def test_admin_cannot_disable_or_demote_self(client):

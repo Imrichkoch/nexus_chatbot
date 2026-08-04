@@ -20,10 +20,13 @@ def utc_now() -> str:
 
 
 def public_user(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    username = row["username"] if "username" in row.keys() else None
+    stored_email = row["email"]
     return {
         "id": row["id"],
         "name": row["name"],
-        "email": row["email"],
+        "username": username,
+        "email": None if stored_email.endswith("@nexus.invalid") else stored_email,
         "role": row["role"],
         "is_active": bool(row["is_active"]),
         "created_at": row["created_at"],
@@ -72,6 +75,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
+                    username TEXT COLLATE NOCASE,
                     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     password_hash TEXT NOT NULL,
                     role TEXT NOT NULL DEFAULT 'user'
@@ -157,6 +161,15 @@ class Store:
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation
                     ON messages(conversation_id, id);
                 """
+            )
+            user_columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()
+            }
+            if "username" not in user_columns:
+                db.execute("ALTER TABLE users ADD COLUMN username TEXT COLLATE NOCASE")
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase "
+                "ON users(username COLLATE NOCASE) WHERE username IS NOT NULL"
             )
             message_columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()
@@ -300,6 +313,7 @@ class Store:
         self,
         *,
         name: str,
+        username: str | None = None,
         email: str,
         password: str,
         role: str = "user",
@@ -312,21 +326,56 @@ class Store:
             cursor = db.execute(
                 """
                 INSERT INTO users
-                    (name, email, password_hash, role, is_active, created_at)
-                VALUES (?, ?, ?, ?, 1, ?)
+                    (name, username, email, password_hash, role, is_active, created_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?)
                 """,
-                (name.strip(), email.strip().lower(), password_hash, role, now),
+                (
+                    name.strip(),
+                    username.strip() if username else None,
+                    email.strip().lower(),
+                    password_hash,
+                    role,
+                    now,
+                ),
             )
             row = db.execute(
                 "SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
         return public_user(row)
 
+    def create_local_user(
+        self,
+        *,
+        name: str,
+        password: str,
+        role: str = "user",
+    ) -> dict[str, Any]:
+        clean_name = name.strip()
+        return self.create_user(
+            name=clean_name,
+            username=clean_name,
+            email=f"local-{secrets.token_hex(16)}@nexus.invalid",
+            password=password,
+            role=role,
+        )
+
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         with self.connection() as db:
             row = db.execute(
                 "SELECT * FROM users WHERE email = ? COLLATE NOCASE",
                 (email.strip(),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_user_by_identifier(self, identifier: str) -> dict[str, Any] | None:
+        with self.connection() as db:
+            row = db.execute(
+                """
+                SELECT * FROM users
+                WHERE email = ? COLLATE NOCASE
+                   OR username = ? COLLATE NOCASE
+                """,
+                (identifier.strip(), identifier.strip()),
             ).fetchone()
         return dict(row) if row else None
 

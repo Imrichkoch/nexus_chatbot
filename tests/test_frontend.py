@@ -10,6 +10,11 @@ def test_spa_shell_is_served(client):
     assert 'data-infra-source="live"' in response.text
     assert 'id="admin-user-create-form"' in response.text
     assert 'id="admin-user-role"' in response.text
+    assert 'id="admin-user-password-generate"' in response.text
+    assert 'id="admin-user-password-copy"' in response.text
+    assert 'id="admin-user-email"' not in response.text
+    assert 'name="identifier"' in response.text
+    assert "crypto.getRandomValues" in client.get("/assets/app.js").text
     assert 'id="rag-drop"' in response.text
     assert 'id="rag-file"' in response.text
     assert "multiple" in response.text

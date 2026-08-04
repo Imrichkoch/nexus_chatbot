@@ -42,7 +42,8 @@ class RegisterPayload(BaseModel):
 
 
 class LoginPayload(BaseModel):
-    email: str = Field(min_length=5, max_length=180)
+    identifier: str | None = Field(default=None, min_length=2, max_length=180)
+    email: str | None = Field(default=None, min_length=5, max_length=180)
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -64,7 +65,6 @@ class UserUpdatePayload(BaseModel):
 
 class AdminUserCreatePayload(BaseModel):
     name: str = Field(min_length=2, max_length=80)
-    email: str = Field(min_length=5, max_length=180)
     password: str = Field(min_length=1, max_length=128)
     role: Literal["user", "admin"] = "user"
 
@@ -139,6 +139,20 @@ def validate_account(name: str, email: str, password: str) -> tuple[str, str]:
             ),
         )
     return clean_name, clean_email
+
+
+def validate_local_account(name: str, password: str) -> str:
+    clean_name = name.strip()
+    if len(clean_name) < 2:
+        raise HTTPException(status_code=422, detail="Meno musí mať aspoň 2 znaky.")
+    if not valid_password(password):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Heslo musí mať aspoň 10 znakov, veľké a malé písmeno a číslo."
+            ),
+        )
+    return clean_name
 
 
 def create_app(
@@ -289,11 +303,14 @@ def create_app(
         client_ip = request.client.host if request.client else "unknown"
         if not app.state.limiter.check(f"login:{client_ip}", 12, 60):
             raise HTTPException(status_code=429, detail="Príliš veľa pokusov.")
-        user_record = app.state.store.get_user_by_email(payload.email)
+        identifier = (payload.identifier or payload.email or "").strip()
+        if not identifier:
+            raise HTTPException(status_code=422, detail="Zadaj meno alebo e-mail.")
+        user_record = app.state.store.get_user_by_identifier(identifier)
         if not user_record or not app.state.store.verify_password(
             user_record, payload.password
         ):
-            raise HTTPException(status_code=401, detail="Nesprávny e-mail alebo heslo.")
+            raise HTTPException(status_code=401, detail="Nesprávne meno, e-mail alebo heslo.")
         if not user_record["is_active"]:
             raise HTTPException(status_code=403, detail="Účet je deaktivovaný.")
         token = app.state.store.create_session(user_record["id"])
@@ -574,11 +591,10 @@ def create_app(
         payload: AdminUserCreatePayload,
         actor: dict[str, Any] = Depends(admin_user),
     ):
-        name, email = validate_account(payload.name, payload.email, payload.password)
+        name = validate_local_account(payload.name, payload.password)
         try:
-            created = app.state.store.create_user(
+            created = app.state.store.create_local_user(
                 name=name,
-                email=email,
                 password=payload.password,
                 role=payload.role,
             )

@@ -17,7 +17,7 @@ Live deployment: [raizenko.cloud/nexus](https://raizenko.cloud/nexus/)
 - Admin-only LIVE Infra checks with a fixed read-only collector and audit logging
 - Synthetic commerce database with natural-language-to-SQL reporting
 - SQLite authorizer, query-only mode, time limit, row limit, and function denylist
-- Admin control plane for creating and managing user/admin accounts, models, RAG, and agent access policies
+- Admin control plane for creating username/password user or admin accounts, managing models, RAG, and agent access policies
 - Responsive desktop/mobile interface with accessible navigation and status controls
 - Atomic user/assistant turn persistence and automatic legacy chat migration
 
