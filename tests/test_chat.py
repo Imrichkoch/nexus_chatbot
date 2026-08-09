@@ -368,6 +368,7 @@ def test_data_agent_turns_natural_language_into_sql_report(client, app):
     assert "SELECT" in assistant["sources"][0]["query"]
     assert app.state.fake_ai.sql_calls[-1]["question"].startswith("Sprav report")
     assert app.state.fake_ai.report_calls[-1]["query_result"]["rows"]
+    assert "Odpovedaj" in app.state.fake_ai.report_calls[-1]["admin_system_prompt"]
 
 
 def test_data_agent_accepts_direct_read_only_sql(client, app):

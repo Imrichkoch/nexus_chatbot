@@ -71,3 +71,28 @@ def test_direct_openai_uses_responses_api(monkeypatch):
     assert calls["payload"]["model"] == "gpt-5.6-terra"
     assert result["text"] == "Responses odpoveď"
 
+
+def test_sql_report_preserves_original_language_and_admin_instructions(monkeypatch):
+    captured = {}
+    provider = ai_module.OpenAIProvider(api_key="test-key", base_url="")
+
+    def fake_reply(**kwargs):
+        captured.update(kwargs)
+        return {"text": "REPORT / TOP SALES REPRESENTATIVE", "model": kwargs["model"]}
+
+    monkeypatch.setattr(provider, "reply", fake_reply)
+    provider.create_sql_report(
+        question="Which sales representative generated the highest revenue?",
+        sql="SELECT sales_rep, SUM(total) FROM sales GROUP BY sales_rep",
+        query_result={"rows": [{"sales_rep": "Peter Malik", "total": 284495.35}]},
+        user_id=42,
+        model="gpt-5.6-terra",
+        admin_system_prompt="Always answer in English.",
+    )
+
+    assert "Always answer in English." in captured["system_prompt"]
+    assert "ORIGINAL USER REQUEST" in captured["system_prompt"]
+    assert "same language as the original user request" in captured["system_prompt"]
+    assert "Original user request:" in captured["messages"][0]["content"]
+    assert "Požiadavka:" not in captured["messages"][0]["content"]
+

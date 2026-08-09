@@ -459,6 +459,7 @@ class DataReportAgent:
         question: str,
         user_id: int,
         model: str,
+        admin_system_prompt: str,
     ) -> dict[str, Any]:
         direct_sql = bool(re.match(r"^\s*(select|with)\b", question, re.IGNORECASE))
         input_tokens = 0
@@ -499,6 +500,7 @@ class DataReportAgent:
             query_result=query_result,
             user_id=user_id,
             model=model,
+            admin_system_prompt=admin_system_prompt,
         )
         return {
             "text": report["text"],

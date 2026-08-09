@@ -537,6 +537,7 @@ def create_app(
                     question=content,
                     user_id=user["id"],
                     model=settings.get("data_model", settings["model"]),
+                    admin_system_prompt=system_prompt,
                 )
                 rag_sources = [result["source"]]
             else:

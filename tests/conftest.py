@@ -56,7 +56,7 @@ class FakeAI:
         }
 
     def create_sql_report(
-        self, *, question, sql, query_result, user_id, model
+        self, *, question, sql, query_result, user_id, model, admin_system_prompt
     ):
         self.report_calls.append(
             {
@@ -65,6 +65,7 @@ class FakeAI:
                 "query_result": query_result,
                 "user_id": user_id,
                 "model": model,
+                "admin_system_prompt": admin_system_prompt,
             }
         )
         return {

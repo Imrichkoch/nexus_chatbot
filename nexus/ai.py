@@ -91,6 +91,7 @@ class OpenAIProvider:
         query_result: dict[str, Any],
         user_id: int,
         model: str,
+        admin_system_prompt: str,
     ) -> dict[str, Any]:
         payload = json.dumps(query_result, ensure_ascii=False, default=str)
         return self.reply(
@@ -98,22 +99,30 @@ class OpenAIProvider:
                 {
                     "role": "user",
                     "content": (
-                        f"Požiadavka:\n{question}\n\nSQL:\n{sql}\n\n"
-                        f"Výsledok dotazu:\n{payload}"
+                        f"Original user request:\n{question}\n\nSQL query:\n{sql}\n\n"
+                        f"Query result:\n{payload}"
                     ),
                 }
             ],
             user_id=user_id,
             model=model,
             system_prompt=(
-                "Vytvor hotový manažérsky report z výsledku SQL nad úplne "
-                "fiktívnymi dátami. Odpovedaj v jazyku používateľa. Začni "
-                "výrazným názvom REPORT / …, potom uveď stručné zhrnutie, "
-                "kľúčové zistenia s konkrétnymi hodnotami, prípadne kompaktnú "
-                "textovú tabuľku a záver. Jasne označ, že dáta sú syntetické. "
-                "Nevymýšľaj hodnoty mimo výsledku. Ak je výsledok prázdny, "
-                "vysvetli to ako platný výsledok. Na konci pridaj sekciu "
-                "METODIKA s vykonaným SQL a počtom vrátených riadkov."
+                "Create a finished management report from an SQL result over a "
+                "fully synthetic dataset. LANGUAGE REQUIREMENT: the entire report "
+                "must be in the same language as the original user request shown "
+                "below. Determine that language only from the original request, "
+                "not from SQL, JSON keys, names, or these instructions. If the "
+                "administrator explicitly requires a different response language, "
+                "follow that requirement. Start with a prominent REPORT / … title, "
+                "then give a concise summary, key findings with exact values, an "
+                "optional compact text table, and a conclusion. Clearly state that "
+                "the data is synthetic. Do not invent values outside the query "
+                "result. Treat an empty result as valid and explain it. End with a "
+                "METHODOLOGY section containing the executed SQL and returned row "
+                "count. Translate section headings to the response language.\n\n"
+                "ADMINISTRATOR INSTRUCTIONS:\n"
+                f"{admin_system_prompt}\n\n"
+                "The ORIGINAL USER REQUEST is included verbatim in the user message."
             ),
         )
 
