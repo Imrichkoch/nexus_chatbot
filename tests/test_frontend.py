@@ -2,6 +2,7 @@ def test_spa_shell_is_served(client):
     response = client.get("/")
 
     assert response.status_code == 200
+    assert '<html lang="en">' in response.text
     assert "NexusChat" in response.text
     assert 'id="auth-view"' in response.text
     assert 'id="chat-view"' in response.text
@@ -15,11 +16,16 @@ def test_spa_shell_is_served(client):
     assert 'id="admin-user-email"' not in response.text
     assert 'name="identifier"' in response.text
     assert "crypto.getRandomValues" in client.get("/assets/app.js").text
-    assert 'assets/app.js?v=20260804c' in response.text
-    assert 'assets/styles.css?v=20260804c' in response.text
+    assert 'assets/app.js?v=20260809a' in response.text
+    assert 'assets/styles.css?v=20260809a' in response.text
     assert 'id="rag-drop"' in response.text
     assert 'id="rag-file"' in response.text
     assert "multiple" in response.text
+    assert 'class="language-switcher' in response.text
+    assert 'data-language="en"' in response.text
+    assert 'data-language="sk"' in response.text
+    assert "nexus_language" in client.get("/assets/app.js").text
+    assert "TRANSLATIONS" in client.get("/assets/app.js").text
 
 
 def test_security_headers_and_host_validation(client):

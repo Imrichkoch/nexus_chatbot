@@ -2,7 +2,7 @@
 
 NexusChat is a private, self-hosted AI workspace built with FastAPI, SQLite, and a responsive vanilla JavaScript frontend. It combines a general assistant, an infrastructure assistant, and a synthetic-data SQL reporting agent in three isolated chat workspaces.
 
-The production interface is primarily Slovak, while assistants are instructed to answer in the language used by the user.
+The web interface defaults to English and can be switched to Slovak from both the sign-in screen and the authenticated workspace. The browser remembers the language choice, while assistants answer in the language used by the user.
 
 Live deployment: [raizenko.cloud/nexus](https://raizenko.cloud/nexus/)
 
@@ -19,6 +19,7 @@ Live deployment: [raizenko.cloud/nexus](https://raizenko.cloud/nexus/)
 - SQLite authorizer, query-only mode, time limit, row limit, and function denylist
 - Admin control plane for creating username/password user or admin accounts, managing models, RAG, and agent access policies
 - Responsive desktop/mobile interface with accessible navigation and status controls
+- Built-in English/Slovak interface switch with browser-local persistence
 - Atomic user/assistant turn persistence and automatic legacy chat migration
 
 ## Agent workspaces

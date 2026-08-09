@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="sk">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/styles.css?v=20260804c">
-  <script src="assets/app.js?v=20260804c" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260809a">
+  <script src="assets/app.js?v=20260809a" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
@@ -52,6 +52,10 @@
     </div>
 
     <div class="auth-panel">
+      <div class="language-switcher auth-language-switcher" role="group" aria-label="Language">
+        <button type="button" data-language="en" aria-pressed="true">EN</button>
+        <button type="button" data-language="sk" aria-pressed="false">SK</button>
+      </div>
       <div class="auth-box">
         <div class="auth-box__header">
           <div>
@@ -162,6 +166,10 @@
         <button id="sidebar-open" class="icon-button menu-button" aria-label="Otvoriť menu" aria-controls="sidebar" aria-expanded="false">☰</button>
         <div class="breadcrumbs"><span>NEXUS</span><b>/</b><strong id="current-section">CONVERSATION</strong></div>
         <div class="topbar-actions">
+          <div class="language-switcher workspace-language-switcher" role="group" aria-label="Language">
+            <button type="button" data-language="en" aria-pressed="true">EN</button>
+            <button type="button" data-language="sk" aria-pressed="false">SK</button>
+          </div>
           <span class="privacy-pill"><span></span> PRIVATE SESSION</span>
           <button id="delete-chat-button" class="icon-button hidden" title="Vymazať konverzáciu" aria-label="Vymazať konverzáciu">⌫</button>
         </div>

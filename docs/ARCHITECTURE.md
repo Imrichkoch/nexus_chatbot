@@ -83,6 +83,8 @@ With no `OPENAI_BASE_URL`, it uses the OpenAI Responses API with `store=False`. 
 
 The browser maintains separate conversation lists and active conversation objects for all three agents. Switching workspaces changes history, active chat, empty-state prompts, labels, and composer behavior. Infra additionally maintains a `snapshot` or `live` source selector.
 
+The interface has an English-first client-side translation catalog with Slovak as the second language. The selected locale is stored under `nexus_language` in browser local storage, applied before authentication state is resolved, and used for static labels, dynamic notifications, assistant workspace prompts, and date formatting. Language selection does not alter account or conversation data.
+
 The client renders model output through a deliberately small rich-text renderer supporting headings, paragraphs, lists, quotes, fenced code, and Markdown-style tables. It does not inject model HTML.
 
 ## 7. Failure behavior

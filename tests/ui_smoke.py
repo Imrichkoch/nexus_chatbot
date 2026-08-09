@@ -23,6 +23,17 @@ def run() -> None:
         mobile_auth.goto("http://127.0.0.1:8765/")
         mobile_auth.wait_for_load_state("networkidle")
         mobile_auth.locator("#auth-view").wait_for(state="visible")
+        assert mobile_auth.locator("html").get_attribute("lang") == "en"
+        auth_title = mobile_auth.locator("#auth-title").inner_text()
+        assert auth_title == "WELCOME BACK", repr(auth_title)
+        mobile_auth.locator(".auth-language-switcher [data-language=sk]").click()
+        assert mobile_auth.locator("html").get_attribute("lang") == "sk"
+        assert mobile_auth.locator("#auth-title").inner_text() == "VITAJ SPÄŤ"
+        mobile_auth.reload()
+        mobile_auth.wait_for_load_state("networkidle")
+        assert mobile_auth.locator("html").get_attribute("lang") == "sk"
+        mobile_auth.locator(".auth-language-switcher [data-language=en]").click()
+        assert mobile_auth.locator("#auth-title").inner_text() == "WELCOME BACK"
         mobile_auth.locator('[data-auth-mode="register"]').click()
         mobile_auth.locator("#register-form").wait_for(state="visible")
         assert (
@@ -65,9 +76,10 @@ def run() -> None:
             )
         desktop.locator("#admin-nav").click()
         desktop.locator("#admin-view").wait_for(state="visible")
+        assert desktop.locator("#admin-view h2").inner_text() == "CONTROL CENTER"
         desktop.locator("#settings-model").wait_for(state="visible")
         desktop.wait_for_function(
-            "() => !document.querySelector('#model-meta').textContent.includes('Načítavam')"
+            "() => !document.querySelector('#model-meta').textContent.includes('Loading')"
         )
         orders_table = desktop.locator("#data-schema-tables").get_by_text(
             "orders", exact=True
@@ -87,7 +99,7 @@ def run() -> None:
         desktop.locator("#admin-user-role").select_option("admin")
         desktop.locator("#admin-user-create-form button[type=submit]").click()
         created_account = desktop.locator("#users-table").get_by_text(
-            "Prihlásenie: UI Operations", exact=True
+            "Login: UI Operations", exact=True
         )
         created_account.wait_for(state="visible")
         desktop.locator("#rag-file").set_input_files(
@@ -199,17 +211,17 @@ def run() -> None:
         assert "SELECT" in desktop.locator(".message__sql code").inner_text().upper()
         data_title = desktop.locator("#conversation-title").inner_text()
         assert desktop.locator("#conversation-count").inner_text() == "1"
-        assert desktop.locator("#conversation-heading-label").inner_text() == "DATA HISTÓRIA"
+        assert desktop.locator("#conversation-heading-label").inner_text() == "DATA HISTORY"
 
         desktop.locator('.agent-option[data-agent="general"]').click()
         desktop.locator("#empty-state").wait_for(state="visible")
         assert desktop.locator("#conversation-count").inner_text() == "0"
-        assert desktop.locator("#conversation-heading-label").inner_text() == "NEXUS HISTÓRIA"
+        assert desktop.locator("#conversation-heading-label").inner_text() == "NEXUS HISTORY"
         assert desktop.locator(".message").count() == 0
 
         desktop.locator("#infra-agent-option").click()
         desktop.wait_for_function(
-            "() => document.querySelector('#conversation-heading-label').textContent === 'INFRA HISTÓRIA'"
+            "() => document.querySelector('#conversation-heading-label').textContent === 'INFRA HISTORY'"
         )
         desktop.locator("#infra-source-switcher").wait_for(state="visible")
         assert (
@@ -231,9 +243,9 @@ def run() -> None:
             == "true"
         )
         assert desktop.locator("#conversation-count").inner_text() == "0"
-        assert desktop.locator("#conversation-heading-label").inner_text() == "INFRA HISTÓRIA"
-        infra_empty_title = desktop.locator("#empty-title-lead").inner_text()
-        assert "serveri" in infra_empty_title.lower(), repr(infra_empty_title)
+        assert desktop.locator("#conversation-heading-label").inner_text() == "INFRA HISTORY"
+        infra_empty_title = desktop.locator("#empty-state h2").inner_text()
+        assert "measure now" in infra_empty_title.lower(), repr(infra_empty_title)
         desktop.locator("#message-input").fill("Je Nexus služba online?")
         desktop.locator("#composer").evaluate("form => form.requestSubmit()")
         desktop.locator(".message--assistant").wait_for(state="visible")

@@ -5,7 +5,160 @@ const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
 const RAG_UPLOAD_CONCURRENCY = 4;
 
+const TRANSLATIONS = {
+  pageTitle: { en: "NexusChat / AI workspace", sk: "NexusChat / AI pracovný priestor" },
+  metaDescription: { en: "NexusChat — private AI workspace.", sk: "NexusChat — súkromný AI pracovný priestor." },
+  skipContent: { en: "Skip to main content", sk: "Preskočiť na hlavný obsah" },
+  heroLead: { en: "Thoughts in.", sk: "Myšlienky dnu." },
+  heroAccent: { en: "Clarity out.", sk: "Jasnosť von." },
+  heroCopy: { en: "Your private AI workspace for analysis, creation, and decisions. Conversations stay under your account.", sk: "Tvoj súkromný AI pracovný priestor pre analýzu, tvorbu a rozhodnutia. Konverzácie zostávajú pod tvojím účtom." },
+  language: { en: "Language", sk: "Jazyk" },
+  welcomeBack: { en: "Welcome back", sk: "Vitaj späť" },
+  createNexus: { en: "Create your Nexus", sk: "Vytvor si Nexus" },
+  signInSubtitle: { en: "Sign in to your Nexus workspace.", sk: "Prihlás sa do svojho Nexus priestoru." },
+  registerSubtitle: { en: "One account. All your conversations.", sk: "Jeden účet. Všetky tvoje konverzácie." },
+  authTabs: { en: "Sign in or register", sk: "Prihlásenie alebo registrácia" },
+  signIn: { en: "Sign in", sk: "Prihlásenie" },
+  newAccount: { en: "New account", sk: "Nový účet" },
+  nameOrEmail: { en: "Name or e-mail", sk: "Meno alebo e-mail" },
+  nameOrEmailPlaceholder: { en: "Your name or e-mail", sk: "Tvoje meno alebo e-mail" },
+  password: { en: "Password", sk: "Heslo" },
+  openNexus: { en: "Open Nexus", sk: "Otvoriť Nexus" },
+  name: { en: "Name", sk: "Meno" },
+  yourName: { en: "Your name", sk: "Tvoje meno" },
+  email: { en: "E-mail", sk: "E-mail" },
+  emailPlaceholder: { en: "you@example.com", sk: "ty@example.com" },
+  passwordPlaceholder: { en: "Min. 10 characters", sk: "Min. 10 znakov" },
+  passwordRules: { en: "Upper-case, lower-case, a number, and at least 10 characters.", sk: "Veľké a malé písmeno, číslo, aspoň 10 znakov." },
+  createAccount: { en: "Create account", sk: "Vytvoriť účet" },
+  authFootnote: { en: "By continuing, you agree to securely store your chat history on this server.", sk: "Pokračovaním súhlasíš s bezpečným uložením histórie chatu na tomto serveri." },
+  closeMenu: { en: "Close menu", sk: "Zavrieť menu" },
+  openMenu: { en: "Open menu", sk: "Otvoriť menu" },
+  mainNavigation: { en: "Main navigation", sk: "Hlavná navigácia" },
+  conversations: { en: "Conversations", sk: "Konverzácie" },
+  administration: { en: "Administration", sk: "Administrácia" },
+  activeModel: { en: "ACTIVE MODEL", sk: "AKTÍVNY MODEL" },
+  user: { en: "User", sk: "Používateľ" },
+  administrator: { en: "Administrator", sk: "Administrátor" },
+  logout: { en: "Sign out", sk: "Odhlásiť sa" },
+  deleteConversation: { en: "Delete conversation", sk: "Vymazať konverzáciu" },
+  assistantChats: { en: "Separate assistant chats", sk: "Samostatné chaty asistentov" },
+  generalAssistant: { en: "general assistant", sk: "všeobecný asistent" },
+  infraSource: { en: "Infra Agent data source", sk: "Zdroj údajov Infra Agenta" },
+  infraSourceLabel: { en: "INFRA SOURCE", sk: "ZDROJ INFRA" },
+  lastMinute: { en: "last minute", sk: "posledná minúta" },
+  nowAdmin: { en: "now · admin", sk: "teraz · admin" },
+  message: { en: "Message", sk: "Správa" },
+  sendMessage: { en: "Send message", sk: "Odoslať správu" },
+  send: { en: "send ·", sk: "odoslať ·" },
+  newLine: { en: "new line", sk: "nový riadok" },
+  controlCenter: { en: "Control center", sk: "Riadiace centrum" },
+  controlCopy: { en: "Accounts, usage, and AI behavior in one place.", sk: "Účty, používanie a správanie AI na jednom mieste." },
+  registeredAccounts: { en: "registered accounts", sk: "registrovaných účtov" },
+  activeAccounts: { en: "active accounts", sk: "aktívnych účtov" },
+  conversationsMetric: { en: "conversations", sk: "konverzácií" },
+  storedMessages: { en: "stored messages", sk: "uložených správ" },
+  users: { en: "Users", sk: "Používatelia" },
+  loading: { en: "Loading…", sk: "Načítavam…" },
+  loginName: { en: "Login name", sk: "Prihlasovacie meno" },
+  loginNamePlaceholder: { en: "E.g. Jane Smith", sk: "Napr. Ján Novák" },
+  temporaryPassword: { en: "Temporary password", sk: "Dočasné heslo" },
+  generatedPasswordPlaceholder: { en: "Create or generate a password", sk: "Vytvor alebo vygeneruj heslo" },
+  generate: { en: "GENERATE", sk: "GENEROVAŤ" },
+  copy: { en: "COPY", sk: "KOPÍROVAŤ" },
+  role: { en: "Role", sk: "Rola" },
+  nameLoginNote: { en: "The name is used for sign-in. No e-mail is required.", sk: "Meno sa používa na prihlásenie. E-mail nie je potrebný." },
+  account: { en: "Account", sk: "Účet" },
+  status: { en: "Status", sk: "Stav" },
+  created: { en: "Created", sk: "Vytvorený" },
+  primaryModel: { en: "Primary model", sk: "Hlavný model" },
+  loadingCatalog: { en: "Loading model catalog…", sk: "Načítavam katalóg modelov…" },
+  systemInstructions: { en: "System instructions", sk: "Systémové inštrukcie" },
+  saveConfiguration: { en: "Save configuration", sk: "Uložiť konfiguráciu" },
+  ragToggle: { en: "Enable or disable RAG", sk: "Zapnúť alebo vypnúť RAG" },
+  ragCopy: { en: "Local knowledge base. Relevant passages are attached to the question and sources are shown with the answer.", sk: "Lokálna znalostná báza. Relevantné pasáže sa pripájajú k otázke a v odpovedi sa zobrazia zdroje." },
+  maxPassages: { en: "Max. passages", sk: "Max. počet pasáží" },
+  addFiles: { en: "＋ ADD OR DROP FILES", sk: "＋ PRIDAŤ ALEBO PRETIAHNUŤ SÚBORY" },
+  fileLimits: { en: "TXT, MD, JSON, YAML, CSV, or LOG · max 50 at once · 10 MB/file", sk: "TXT, MD, JSON, YAML, CSV alebo LOG · max 50 naraz · 10 MB/súbor" },
+  infraToggle: { en: "Enable or disable Infra Agent", sk: "Zapnúť alebo vypnúť Infra Agenta" },
+  infraCopy: { en: "Switchable one-minute snapshot or LIVE read-only check. It has no unrestricted shell and cannot change the server.", sk: "Prepínateľný minútový snapshot alebo LIVE read-only kontrola. Nemá voľný shell a nevie meniť server." },
+  snapshotUnavailable: { en: "SNAPSHOT UNAVAILABLE", sk: "SNAPSHOT NEDOSTUPNÝ" },
+  adminsOnly: { en: "Administrators only", sk: "Iba administrátori" },
+  allowLive: { en: "Allow LIVE for admins", sk: "Povoliť LIVE adminom" },
+  infraBoundary: { en: "CPU · RAM · disk · ports · TLS · health · approved systemd services", sk: "CPU · RAM · disk · porty · TLS · health · povolené systemd služby" },
+  dataToggle: { en: "Enable or disable SQL Report Agent", sk: "Zapnúť alebo vypnúť SQL Report Agenta" },
+  dataCopy: { en: "It turns a question into read-only SQL, runs it against an isolated fictional database, and returns a finished management report.", sk: "Z otázky vytvorí read-only SQL, vykoná ho nad izolovanou fiktívnou databázou a vráti hotový manažérsky report." },
+  syntheticBoundary: { en: "No real accounts or chats · SELECT/WITH · max 100 rows · time limit", sk: "Žiadne reálne účty ani chaty · SELECT/WITH · max 100 riadkov · časový limit" },
+  fictionalSchema: { en: "Fictional schema", sk: "Fiktívna schéma" },
+  tryAsking: { en: "TRY ASKING", sk: "SKÚS SA OPÝTAŤ" },
+  exampleSales: { en: "“Compare revenue by country and segment.”", sk: "„Porovnaj tržby podľa krajín a segmentov.“" },
+  exampleMargin: { en: "“Which products have the highest margin?”", sk: "„Ktoré produkty majú najvyššiu maržu?“" },
+  exampleSla: { en: "“Create an SLA report for support tickets.”", sk: "„Sprav SLA report support ticketov.“" },
+  unavailableTime: { en: "unavailable time", sk: "nedostupný čas" },
+  requestFailed: { en: "The request could not be completed.", sk: "Požiadavku sa nepodarilo dokončiť." },
+  checking: { en: "Checking…", sk: "Overujem…" },
+  conversationDeletePrompt: { en: "Delete conversation “{title}”?", sk: "Vymazať konverzáciu „{title}“?" },
+  conversationDeleted: { en: "Conversation deleted.", sk: "Konverzácia bola vymazaná." },
+  accountsCount: { en: "{count} accounts", sk: "{count} účtov" },
+  catalogUnavailable: { en: "Catalog unavailable · custom model ID still works", sk: "Katalóg je nedostupný · vlastný model ID funguje" },
+  catalogCount: { en: "{count} models · you can enter a custom model ID", sk: "{count} modelov · môžeš zadať vlastný model ID" },
+  contextUnknown: { en: "context not specified", sk: "kontext neuvedený" },
+  context: { en: "context", sk: "kontext" },
+  perMillionTokens: { en: "per 1M tokens", sk: "za 1M tokenov" },
+  noDocuments: { en: "No documents yet.", sk: "Zatiaľ bez dokumentov." },
+  passages: { en: "{count} passages · {chars}k characters", sk: "{count} pasáží · {chars}k znakov" },
+  remove: { en: "REMOVE", sk: "ODSTRÁNIŤ" },
+  removeDocumentLabel: { en: "Remove document {name}", sk: "Odstrániť dokument {name}" },
+  uploadInProgress: { en: "A previous batch is still uploading.", sk: "Predchádzajúca dávka sa ešte nahráva." },
+  tooManyFiles: { en: "You can add at most {count} files at once.", sk: "Naraz môžeš pridať najviac {count} súborov." },
+  fileTooLarge: { en: "{name} is larger than 10 MB.", sk: "{name} je väčší ako 10 MB." },
+  batchTooLarge: { en: "The batch is larger than 50 MB. Split it into multiple uploads.", sk: "Celá dávka je väčšia ako 50 MB. Rozdeľ ju na viac uploadov." },
+  uploading: { en: "Uploading {done}/{total}…", sk: "Nahrávam {done}/{total}…" },
+  uploadPartial: { en: "Done: {success} added · {failed} failed", sk: "Hotovo: {success} pridaných · {failed} zlyhalo" },
+  uploadDone: { en: "Done: {count} files added", sk: "Hotovo: {count} súborov pridaných" },
+  filesAdded: { en: "{count} files were added to the knowledge base.", sk: "{count} súborov bolo pridaných do znalostnej bázy." },
+  removeDocumentPrompt: { en: "Remove this document from the knowledge base?", sk: "Odstrániť dokument zo znalostnej bázy?" },
+  documentRemoved: { en: "Document removed.", sk: "Dokument bol odstránený." },
+  loginPrefix: { en: "Login: {name}", sk: "Prihlásenie: {name}" },
+  userRoleLabel: { en: "Role for {name}", sk: "Rola používateľa {name}" },
+  deactivateUser: { en: "Deactivate user {name}", sk: "Deaktivovať používateľa {name}" },
+  activateUser: { en: "Activate user {name}", sk: "Aktivovať používateľa {name}" },
+  userUpdated: { en: "User updated.", sk: "Používateľ bol aktualizovaný." },
+  accountCreated: { en: "{role} {name} was created.", sk: "{role} {name} bol vytvorený." },
+  passwordGenerated: { en: "Secure password generated.", sk: "Bezpečné heslo bolo vygenerované." },
+  passwordCopied: { en: "Password copied.", sk: "Heslo bolo skopírované." },
+  passwordSelected: { en: "The password is selected. Copy it with Ctrl+C.", sk: "Heslo je označené. Skopíruj ho klávesmi Ctrl+C." },
+  saving: { en: "Saving…", sk: "Ukladám…" },
+  settingsSaved: { en: "AI configuration saved.", sk: "AI konfigurácia bola uložená." },
+  loggedOut: { en: "You have signed out.", sk: "Bol si odhlásený." },
+  shortened: { en: " · shortened", sk: " · skrátené" },
+  rows: { en: "rows", sk: "riadkov" },
+  showSql: { en: "Show executed SQL query", sk: "Zobraziť vykonaný SQL dotaz" },
+  sqlUnavailable: { en: "SQL query is unavailable.", sk: "SQL dotaz nie je dostupný." },
+  preparing: { en: "{agent} is preparing a response", sk: "{agent} pripravuje odpoveď" },
+  thinking: { en: "THINKING", sk: "PREMÝŠĽA" },
+};
+
+function storedLanguage() {
+  try {
+    return window.localStorage.getItem("nexus_language") === "sk" ? "sk" : "en";
+  } catch {
+    return "en";
+  }
+}
+
+function t(key, values = {}) {
+  const template = TRANSLATIONS[key]?.[state.language]
+    || TRANSLATIONS[key]?.en
+    || key;
+  return Object.entries(values).reduce(
+    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+    template,
+  );
+}
+
 const state = {
+  language: storedLanguage(),
   user: null,
   conversationsByAgent: {
     general: [],
@@ -29,7 +182,7 @@ const state = {
   ragUploading: false,
 };
 
-const AGENT_WORKSPACES = {
+const AGENT_WORKSPACES_SK = {
   general: {
     shortLabel: "NEXUS",
     historyLabel: "NEXUS HISTÓRIA",
@@ -131,7 +284,7 @@ const AGENT_WORKSPACES = {
   },
 };
 
-const INFRA_LIVE_UI = {
+const INFRA_LIVE_UI_SK = {
   sectionLabel: "INFRA LIVE",
   emptyEyebrow: "LIVE INFRA / ADMIN READ-ONLY",
   emptyTitleLead: "Čo na serveri",
@@ -141,9 +294,190 @@ const INFRA_LIVE_UI = {
   disclaimer: "LIVE vykonáva iba pevné read-only kontroly bez root shellu a zmien.",
 };
 
+const AGENT_WORKSPACES_EN = {
+  general: {
+    shortLabel: "NEXUS",
+    historyLabel: "NEXUS HISTORY",
+    sectionLabel: "NEXUS CHAT",
+    mark: "N",
+    newChatLabel: "New conversation",
+    emptyEyebrow: "NEXUS INTELLIGENCE / READY",
+    emptyTitleLead: "What shall we",
+    emptyTitleAccent: "untangle today?",
+    emptyDescription: "Start with a question or choose one of the directions below.",
+    placeholder: "Write a message to Nexus…",
+    disclaimer: "Nexus can make mistakes. Verify important information.",
+    prompts: [
+      {
+        index: "01 / ANALYSIS",
+        title: "Break down a problem",
+        detail: "Facts, risks, options →",
+        prompt: "Analyze this situation step by step and propose three realistic solutions.",
+      },
+      {
+        index: "02 / PLAN",
+        title: "Design a plan",
+        detail: "Milestones and next step →",
+        prompt: "Help me create a clear project plan with milestones, risks, and the next action.",
+      },
+      {
+        index: "03 / UNDERSTAND",
+        title: "Explain a topic",
+        detail: "Clear and concise →",
+        prompt: "Explain this topic simply without losing the important details.",
+      },
+    ],
+  },
+  infra: {
+    shortLabel: "INFRA",
+    historyLabel: "INFRA HISTORY",
+    sectionLabel: "INFRA CHAT",
+    mark: "I",
+    newChatLabel: "New infra chat",
+    emptyEyebrow: "INFRA AGENT / READ-ONLY",
+    emptyTitleLead: "What should we",
+    emptyTitleAccent: "check on the server?",
+    emptyDescription: "A separate chat over the current read-only server snapshot.",
+    placeholder: "Ask about the server, services, or applications…",
+    disclaimer: "Infra Agent only reads a snapshot. It makes no changes to the server.",
+    prompts: [
+      {
+        index: "01 / HEALTH",
+        title: "Server health",
+        detail: "CPU, RAM, disk, and load →",
+        prompt: "Check the current server state: CPU, RAM, disk, and load, and warn me about risks.",
+      },
+      {
+        index: "02 / SERVICES",
+        title: "Check services",
+        detail: "Processes and availability →",
+        prompt: "Which monitored services are running, and do you see any problem or outage?",
+      },
+      {
+        index: "03 / APP",
+        title: "Nexus and TLS",
+        detail: "Application, proxy, certificate →",
+        prompt: "Check the Nexus application, reverse proxy, and TLS certificate validity.",
+      },
+    ],
+  },
+  data: {
+    shortLabel: "DATA",
+    historyLabel: "DATA HISTORY",
+    sectionLabel: "DATA CHAT",
+    mark: "D",
+    newChatLabel: "New SQL report",
+    emptyEyebrow: "DATA AGENT / SYNTHETIC DB",
+    emptyTitleLead: "Which report",
+    emptyTitleAccent: "shall we prepare?",
+    emptyDescription: "A separate workspace for read-only SQL and reports over fictional data.",
+    placeholder: "Request a report or enter read-only SQL…",
+    disclaimer: "Data Agent only works with an isolated fictional database in read-only mode.",
+    prompts: [
+      {
+        index: "01 / SALES",
+        title: "Revenue by country",
+        detail: "Results and comparison →",
+        prompt: "Create a revenue report by country and sort it from highest to lowest.",
+      },
+      {
+        index: "02 / MARGIN",
+        title: "Product margins",
+        detail: "Top and weak products →",
+        prompt: "Compare product margins and highlight the three weakest results.",
+      },
+      {
+        index: "03 / SLA",
+        title: "SLA and incidents",
+        detail: "Trend and deviations →",
+        prompt: "Prepare an SLA and incident report for the latest available period.",
+      },
+    ],
+  },
+};
+
+const INFRA_LIVE_UI_EN = {
+  sectionLabel: "INFRA LIVE",
+  emptyEyebrow: "LIVE INFRA / ADMIN READ-ONLY",
+  emptyTitleLead: "What should we",
+  emptyTitleAccent: "measure now?",
+  emptyDescription: "Fixed approved checks run live for every question.",
+  placeholder: "Ask about the server's current state…",
+  disclaimer: "LIVE only runs fixed read-only checks without a root shell or changes.",
+};
+
+function agentWorkspaces() {
+  return state.language === "sk" ? AGENT_WORKSPACES_SK : AGENT_WORKSPACES_EN;
+}
+
+function liveInfraUi() {
+  return state.language === "sk" ? INFRA_LIVE_UI_SK : INFRA_LIVE_UI_EN;
+}
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const mobileSidebarQuery = window.matchMedia("(max-width: 780px)");
+let staticTranslationsInitialized = false;
+
+function applyStaticTranslations() {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  for (const node of nodes) {
+    const normalized = node.nodeValue.replace(/\s+/g, " ").trim();
+    if (!node.__nexusTranslationKey && !staticTranslationsInitialized) {
+      node.__nexusTranslationKey = Object.entries(TRANSLATIONS).find(
+        ([, values]) => Object.values(values).includes(normalized),
+      )?.[0];
+    }
+    if (!node.__nexusTranslationKey) continue;
+    const leading = node.nodeValue.match(/^\s*/)?.[0] || "";
+    const trailing = node.nodeValue.match(/\s*$/)?.[0] || "";
+    node.nodeValue = `${leading}${t(node.__nexusTranslationKey)}${trailing}`;
+  }
+
+  for (const element of $$('[placeholder], [aria-label], [title], meta[name="description"]')) {
+    element.__nexusTranslationAttributes ||= {};
+    for (const attribute of ["placeholder", "aria-label", "title", "content"]) {
+      if (!element.hasAttribute(attribute)) continue;
+      const current = element.getAttribute(attribute).replace(/\s+/g, " ").trim();
+      if (!element.__nexusTranslationAttributes[attribute] && !staticTranslationsInitialized) {
+        element.__nexusTranslationAttributes[attribute] = Object.entries(TRANSLATIONS).find(
+          ([, values]) => Object.values(values).includes(current),
+        )?.[0];
+      }
+      const key = element.__nexusTranslationAttributes[attribute];
+      if (key) element.setAttribute(attribute, t(key));
+    }
+  }
+  staticTranslationsInitialized = true;
+}
+
+function setLanguage(language, persist = true) {
+  state.language = language === "sk" ? "sk" : "en";
+  document.documentElement.lang = state.language;
+  document.title = t("pageTitle");
+  if (persist) {
+    try {
+      window.localStorage.setItem("nexus_language", state.language);
+    } catch {}
+  }
+  applyStaticTranslations();
+  $$('[data-language]').forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.language === state.language));
+  });
+  const authMode = $("#register-form").classList.contains("hidden") ? "login" : "register";
+  setAuthMode(authMode);
+  if (!state.user) return;
+  $("#sidebar-user-role").textContent = state.user.role === "admin"
+    ? t("administrator")
+    : t("user");
+  updateAgentWorkspaceUI(state.agentMode);
+  renderConversationList();
+  renderConversation();
+  if (state.activeView === "admin") loadAdmin();
+}
 
 function show(element, visible = true) {
   if (!element) return;
@@ -160,7 +494,7 @@ function asDate(value) {
 function formatDate(value) {
   const parsed = asDate(value);
   if (!parsed) return "—";
-  return new Intl.DateTimeFormat("sk-SK", {
+  return new Intl.DateTimeFormat(state.language === "sk" ? "sk-SK" : "en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -170,7 +504,7 @@ function formatDate(value) {
 function formatTime(value) {
   const parsed = asDate(value);
   if (!parsed) return "";
-  return new Intl.DateTimeFormat("sk-SK", {
+  return new Intl.DateTimeFormat(state.language === "sk" ? "sk-SK" : "en-GB", {
     hour: "2-digit",
     minute: "2-digit",
   }).format(parsed);
@@ -178,8 +512,8 @@ function formatTime(value) {
 
 function formatDateTime(value) {
   const parsed = asDate(value);
-  if (!parsed) return "nedostupný čas";
-  return new Intl.DateTimeFormat("sk-SK", {
+  if (!parsed) return t("unavailableTime");
+  return new Intl.DateTimeFormat(state.language === "sk" ? "sk-SK" : "en-GB", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -190,6 +524,7 @@ function formatDateTime(value) {
 }
 
 function messageCountLabel(count) {
+  if (state.language === "en") return count === 1 ? "1 message" : `${count} messages`;
   if (count === 1) return "1 správa";
   if (count >= 2 && count <= 4) return `${count} správy`;
   return `${count} správ`;
@@ -207,14 +542,18 @@ function formatUsd(value) {
 async function api(path, options = {}) {
   const config = {
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      "Accept-Language": state.language,
+      ...(options.headers || {}),
+    },
     ...options,
   };
   const response = await fetch(`${apiBase}${path}`, config);
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(body.detail || "Požiadavku sa nepodarilo dokončiť.");
+    const error = new Error(body.detail || t("requestFailed"));
     error.status = response.status;
     throw error;
   }
@@ -240,10 +579,10 @@ function setAuthMode(mode) {
     tab.setAttribute("aria-selected", String(selected));
     tab.tabIndex = selected ? 0 : -1;
   });
-  $("#auth-title").textContent = login ? "Vitaj späť" : "Vytvor si Nexus";
+  $("#auth-title").textContent = login ? t("welcomeBack") : t("createNexus");
   $("#auth-subtitle").textContent = login
-    ? "Prihlás sa do svojho Nexus priestoru."
-    : "Jeden účet. Všetky tvoje konverzácie.";
+    ? t("signInSubtitle")
+    : t("registerSubtitle");
   show($("#auth-error"), false);
 }
 
@@ -251,7 +590,7 @@ function setAuthLoading(form, loading) {
   const button = form.querySelector("button[type=submit]");
   button.disabled = loading;
   button.dataset.original ||= button.innerHTML;
-  button.innerHTML = loading ? "<span>Overujem…</span><span>◌</span>" : button.dataset.original;
+  button.innerHTML = loading ? `<span>${t("checking")}</span><span>◌</span>` : button.dataset.original;
 }
 
 async function submitAuth(form, mode) {
@@ -275,6 +614,7 @@ async function submitAuth(form, mode) {
 }
 
 async function initialize() {
+  setLanguage(state.language, false);
   bindEvents();
   try {
     const result = await api("/auth/me");
@@ -291,7 +631,7 @@ async function enterWorkspace() {
   show($("#workspace"));
   $("#sidebar-user-name").textContent = state.user.name;
   $("#sidebar-user-role").textContent =
-    state.user.role === "admin" ? "Administrátor" : "Používateľ";
+    state.user.role === "admin" ? t("administrator") : t("user");
   $("#user-avatar").textContent = state.user.name.charAt(0).toUpperCase();
   show($("#admin-nav"), state.user.role === "admin");
   switchView("chat");
@@ -325,9 +665,9 @@ function conversationsFor(mode = state.agentMode) {
 }
 
 function updateAgentWorkspaceUI(mode) {
-  const baseWorkspace = AGENT_WORKSPACES[mode];
+  const baseWorkspace = agentWorkspaces()[mode];
   const workspace = mode === "infra" && state.infraSource === "live"
-    ? { ...baseWorkspace, ...INFRA_LIVE_UI }
+    ? { ...baseWorkspace, ...liveInfraUi() }
     : baseWorkspace;
   $("#workspace").dataset.agentMode = mode;
   $("#conversation-heading-label").textContent = workspace.historyLabel;
@@ -447,7 +787,7 @@ function renderConversationList() {
 }
 
 async function createConversation(
-  title = AGENT_WORKSPACES[state.agentMode].newChatLabel,
+  title = agentWorkspaces()[state.agentMode].newChatLabel,
 ) {
   const mode = state.agentMode;
   const conversation = await api("/conversations", {
@@ -703,14 +1043,14 @@ function messageNode(message) {
       const chip = document.createElement("span");
       if (source.type === "sql") {
         chip.classList.add("source-sql");
-        const shortened = source.truncated || source.cells_truncated ? " · skrátené" : "";
-        chip.textContent = `SQL · ${source.row_count} riadkov · ${source.elapsed_ms} ms${shortened}`;
+        const shortened = source.truncated || source.cells_truncated ? t("shortened") : "";
+        chip.textContent = `SQL · ${source.row_count} ${t("rows")} · ${source.elapsed_ms} ms${shortened}`;
         const details = document.createElement("details");
         details.className = "message__sql";
         const summary = document.createElement("summary");
-        summary.textContent = "Zobraziť vykonaný SQL dotaz";
+        summary.textContent = t("showSql");
         const query = document.createElement("code");
-        query.textContent = source.query || "SQL dotaz nie je dostupný.";
+        query.textContent = source.query || t("sqlUnavailable");
         details.append(summary, query);
         sources.append(chip, details);
       } else if (source.type === "infra") {
@@ -739,12 +1079,12 @@ function typingNode(mode, infraSource) {
   article.setAttribute("role", "status");
   article.setAttribute(
     "aria-label",
-    `${agentLabel(mode, infraSource)} pripravuje odpoveď`,
+    t("preparing", { agent: agentLabel(mode, infraSource) }),
   );
   article.innerHTML = `
     <div class="message__avatar">NX</div>
     <div>
-      <div class="message__head"><strong>${agentLabel(mode, infraSource)}</strong><span>PREMÝŠĽA</span></div>
+      <div class="message__head"><strong>${agentLabel(mode, infraSource)}</strong><span>${t("thinking")}</span></div>
       <div class="typing"><span></span><span></span><span></span></div>
     </div>`;
   return article;
@@ -820,7 +1160,7 @@ async function deleteActiveConversation() {
   if (!state.activeConversation) return;
   const mode = state.agentMode;
   const conversation = state.activeConversation;
-  if (!window.confirm(`Vymazať konverzáciu „${conversation.title}“?`)) return;
+  if (!window.confirm(t("conversationDeletePrompt", { title: conversation.title }))) return;
   try {
     await api(`/conversations/${conversation.id}`, { method: "DELETE" });
     state.conversationsByAgent[mode] = conversationsFor(mode).filter(
@@ -830,7 +1170,7 @@ async function deleteActiveConversation() {
     state.activeConversation = null;
     renderConversationList();
     renderConversation();
-    toast("Konverzácia bola vymazaná.");
+    toast(t("conversationDeleted"));
   } catch (error) {
     toast(error.message, "error");
   }
@@ -842,7 +1182,7 @@ function switchView(view) {
   show($("#admin-view"), view === "admin");
   $("#current-section").textContent = view === "admin"
     ? "CONTROL PLANE"
-    : AGENT_WORKSPACES[state.agentMode].sectionLabel;
+    : agentWorkspaces()[state.agentMode].sectionLabel;
   $$(".nav-item").forEach((item) => {
     const selected = item.dataset.view === view;
     item.classList.toggle("active", selected);
@@ -871,7 +1211,7 @@ async function loadAdmin() {
     $("#metric-active").textContent = overview.users_active;
     $("#metric-chats").textContent = overview.conversations_total;
     $("#metric-messages").textContent = overview.messages_total;
-    $("#users-status").textContent = `${users.length} účtov`;
+    $("#users-status").textContent = t("accountsCount", { count: users.length });
     renderUsers(users);
     $("#settings-model").value = settings.model;
     $("#settings-prompt").value = settings.system_prompt;
@@ -933,23 +1273,23 @@ async function loadModelCatalog() {
     }
     updateModelMeta();
   } catch (error) {
-    $("#model-meta").textContent = "Katalóg je nedostupný · vlastný model ID funguje";
+    $("#model-meta").textContent = t("catalogUnavailable");
   }
 }
 
 function updateModelMeta() {
   const selected = state.models.find((model) => model.id === $("#settings-model").value);
   if (!selected) {
-    $("#model-meta").textContent = `${state.models.length} modelov · môžeš zadať vlastný model ID`;
+    $("#model-meta").textContent = t("catalogCount", { count: state.models.length });
     return;
   }
   const context = selected.context_length
-    ? `${Math.round(selected.context_length / 1000)}k kontext`
-    : "kontext neuvedený";
+    ? `${Math.round(selected.context_length / 1000)}k ${t("context")}`
+    : t("contextUnknown");
   const inputPrice = Number(selected.prompt_price || 0) * 1_000_000;
   const outputPrice = Number(selected.completion_price || 0) * 1_000_000;
   $("#model-meta").textContent =
-    `${selected.name} · ${context} · ${formatUsd(inputPrice)}/${formatUsd(outputPrice)} za 1M tokenov`;
+    `${selected.name} · ${context} · ${formatUsd(inputPrice)}/${formatUsd(outputPrice)} ${t("perMillionTokens")}`;
 }
 
 function renderDocuments(documents) {
@@ -958,7 +1298,7 @@ function renderDocuments(documents) {
   if (!documents.length) {
     const empty = document.createElement("p");
     empty.className = "document-empty";
-    empty.textContent = "Zatiaľ bez dokumentov.";
+    empty.textContent = t("noDocuments");
     container.appendChild(empty);
     return;
   }
@@ -969,12 +1309,15 @@ function renderDocuments(documents) {
     const name = document.createElement("strong");
     name.textContent = documentData.name;
     const meta = document.createElement("small");
-    meta.textContent = `${documentData.chunk_count} pasáží · ${Math.ceil(documentData.character_count / 1000)}k znakov`;
+    meta.textContent = t("passages", {
+      count: documentData.chunk_count,
+      chars: Math.ceil(documentData.character_count / 1000),
+    });
     info.append(name, meta);
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.textContent = "ODSTRÁNIŤ";
-    remove.setAttribute("aria-label", `Odstrániť dokument ${documentData.name}`);
+    remove.textContent = t("remove");
+    remove.setAttribute("aria-label", t("removeDocumentLabel", { name: documentData.name }));
     remove.addEventListener("click", () => deleteRagDocument(documentData.id));
     row.append(info, remove);
     container.appendChild(row);
@@ -986,30 +1329,30 @@ function renderInfraStatus(status) {
   container.classList.toggle("online", status.available);
   container.querySelector("strong").textContent = status.available
     ? `SNAPSHOT ${formatDateTime(status.generated_at)}`
-    : "SNAPSHOT NEDOSTUPNÝ";
+    : t("snapshotUnavailable");
 }
 
 async function uploadRagDocuments(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
   if (state.ragUploading) {
-    toast("Predchádzajúca dávka sa ešte nahráva.", "error");
+    toast(t("uploadInProgress"), "error");
     return;
   }
   if (files.length > RAG_MAX_FILES_PER_BATCH) {
-    toast(`Naraz môžeš pridať najviac ${RAG_MAX_FILES_PER_BATCH} súborov.`, "error");
+    toast(t("tooManyFiles", { count: RAG_MAX_FILES_PER_BATCH }), "error");
     $("#rag-file").value = "";
     return;
   }
   const oversized = files.find((file) => file.size > RAG_MAX_FILE_BYTES);
   if (oversized) {
-    toast(`${oversized.name} je väčší ako 10 MB.`, "error");
+    toast(t("fileTooLarge", { name: oversized.name }), "error");
     $("#rag-file").value = "";
     return;
   }
   const totalBytes = files.reduce((total, file) => total + file.size, 0);
   if (totalBytes > RAG_MAX_BATCH_BYTES) {
-    toast("Celá dávka je väčšia ako 50 MB. Rozdeľ ju na viac uploadov.", "error");
+    toast(t("batchTooLarge"), "error");
     $("#rag-file").value = "";
     return;
   }
@@ -1021,7 +1364,7 @@ async function uploadRagDocuments(fileList) {
   let completed = 0;
   state.ragUploading = true;
   drop.classList.add("uploading");
-  status.textContent = `Nahrávam 0/${files.length}…`;
+  status.textContent = t("uploading", { done: 0, total: files.length });
 
   async function worker() {
     while (queue.length) {
@@ -1035,7 +1378,7 @@ async function uploadRagDocuments(fileList) {
         failures.push({ name: file.name, message: error.message });
       } finally {
         completed += 1;
-        status.textContent = `Nahrávam ${completed}/${files.length}…`;
+        status.textContent = t("uploading", { done: completed, total: files.length });
       }
     }
   }
@@ -1049,12 +1392,12 @@ async function uploadRagDocuments(fileList) {
     );
     const succeeded = files.length - failures.length;
     status.textContent = failures.length
-      ? `Hotovo: ${succeeded} pridaných · ${failures.length} zlyhalo`
-      : `Hotovo: ${succeeded} súborov pridaných`;
+      ? t("uploadPartial", { success: succeeded, failed: failures.length })
+      : t("uploadDone", { count: succeeded });
     if (failures.length) {
       toast(`${failures[0].name}: ${failures[0].message}`, "error");
     } else {
-      toast(`${succeeded} súborov bolo pridaných do znalostnej bázy.`);
+      toast(t("filesAdded", { count: succeeded }));
     }
     renderDocuments((await api("/admin/rag/documents")).documents);
   } finally {
@@ -1065,11 +1408,11 @@ async function uploadRagDocuments(fileList) {
 }
 
 async function deleteRagDocument(id) {
-  if (!window.confirm("Odstrániť dokument zo znalostnej bázy?")) return;
+  if (!window.confirm(t("removeDocumentPrompt"))) return;
   try {
     await api(`/admin/rag/documents/${id}`, { method: "DELETE" });
     renderDocuments((await api("/admin/rag/documents")).documents);
-    toast("Dokument bol odstránený.");
+    toast(t("documentRemoved"));
   } catch (error) {
     toast(error.message, "error");
   }
@@ -1081,33 +1424,33 @@ function renderUsers(users) {
   for (const user of users) {
     const row = document.createElement("tr");
     const identity = document.createElement("td");
-    identity.dataset.label = "Účet";
+    identity.dataset.label = t("account");
     identity.innerHTML = `<div class="user-cell"><span class="avatar"></span><span><strong></strong><small></small></span></div>`;
     identity.querySelector(".avatar").textContent = user.name.charAt(0).toUpperCase();
     identity.querySelector("strong").textContent = user.name;
     identity.querySelector("small").textContent = user.username
-      ? `Prihlásenie: ${user.username}`
+      ? t("loginPrefix", { name: user.username })
       : user.email;
 
     const roleCell = document.createElement("td");
-    roleCell.dataset.label = "Rola";
+    roleCell.dataset.label = t("role");
     const role = document.createElement("select");
     role.className = "role-select";
     role.innerHTML = '<option value="user">USER</option><option value="admin">ADMIN</option>';
     role.value = user.role;
-    role.setAttribute("aria-label", `Rola používateľa ${user.name}`);
+    role.setAttribute("aria-label", t("userRoleLabel", { name: user.name }));
     role.disabled = user.id === state.user.id;
     role.addEventListener("change", () => updateUser(user.id, { role: role.value }));
     roleCell.appendChild(role);
 
     const statusCell = document.createElement("td");
-    statusCell.dataset.label = "Stav";
+    statusCell.dataset.label = t("status");
     const statusButton = document.createElement("button");
     statusButton.className = `status-toggle ${user.is_active ? "active" : "disabled"}`;
     statusButton.textContent = user.is_active ? "● ACTIVE" : "○ DISABLED";
     statusButton.setAttribute(
       "aria-label",
-      `${user.is_active ? "Deaktivovať" : "Aktivovať"} používateľa ${user.name}`,
+      t(user.is_active ? "deactivateUser" : "activateUser", { name: user.name }),
     );
     statusButton.disabled = user.id === state.user.id;
     statusButton.addEventListener("click", () =>
@@ -1116,7 +1459,7 @@ function renderUsers(users) {
     statusCell.appendChild(statusButton);
 
     const created = document.createElement("td");
-    created.dataset.label = "Vytvorený";
+    created.dataset.label = t("created");
     created.textContent = formatDate(user.created_at);
     row.append(identity, roleCell, statusCell, created);
     tbody.appendChild(row);
@@ -1129,7 +1472,7 @@ async function updateUser(id, changes) {
       method: "PATCH",
       body: JSON.stringify(changes),
     });
-    toast("Používateľ bol aktualizovaný.");
+    toast(t("userUpdated"));
     loadAdmin();
   } catch (error) {
     toast(error.message, "error");
@@ -1152,7 +1495,10 @@ async function createAdminUser(form) {
     });
     form.reset();
     $("#admin-user-password-copy").disabled = true;
-    toast(`${created.role === "admin" ? "Admin" : "Používateľ"} ${created.name} bol vytvorený.`);
+    toast(t("accountCreated", {
+      role: created.role === "admin" ? t("administrator") : t("user"),
+      name: created.name,
+    }));
     await loadAdmin();
   } catch (error) {
     toast(error.message, "error");
@@ -1195,7 +1541,7 @@ function generateAdminPassword() {
   $("#admin-user-password-copy").disabled = false;
   input.focus();
   input.select();
-  toast("Bezpečné heslo bolo vygenerované.");
+  toast(t("passwordGenerated"));
 }
 
 async function copyAdminPassword() {
@@ -1203,11 +1549,11 @@ async function copyAdminPassword() {
   if (!input.value) return;
   try {
     await navigator.clipboard.writeText(input.value);
-    toast("Heslo bolo skopírované.");
+    toast(t("passwordCopied"));
   } catch {
     input.focus();
     input.select();
-    toast("Heslo je označené. Skopíruj ho klávesmi Ctrl+C.");
+    toast(t("passwordSelected"));
   }
 }
 
@@ -1233,7 +1579,7 @@ async function saveSettings(form) {
   state.settingsSaving = true;
   const button = form.querySelector("button");
   button.dataset.originalLabel ||= button.textContent;
-  button.textContent = "Ukladám…";
+  button.textContent = t("saving");
   button.disabled = true;
   let savedSettings = null;
   let failure = null;
@@ -1263,7 +1609,7 @@ async function saveSettings(form) {
   if (savedSettings) {
     $("#sidebar-model").textContent = savedSettings.model;
     await loadCapabilities();
-    toast("AI konfigurácia bola uložená.");
+    toast(t("settingsSaved"));
   }
 }
 
@@ -1289,7 +1635,7 @@ async function logout(notify = true) {
   show($("#workspace"), false);
   show($("#auth-view"));
   setAuthMode("login");
-  if (notify) toast("Bol si odhlásený.");
+  if (notify) toast(t("loggedOut"));
 }
 
 function syncSidebarAccessibility() {
@@ -1330,6 +1676,9 @@ function setUserMenu(open) {
 }
 
 function bindEvents() {
+  $$('[data-language]').forEach((button) => {
+    button.addEventListener("click", () => setLanguage(button.dataset.language));
+  });
   $$(".auth-tab").forEach((tab, index, tabs) => {
     tab.addEventListener("click", () => setAuthMode(tab.dataset.authMode));
     tab.addEventListener("keydown", (event) => {
