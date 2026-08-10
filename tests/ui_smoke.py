@@ -140,7 +140,35 @@ def run() -> None:
         desktop.get_by_text("ui-dropped-runbook.md", exact=True).wait_for(
             state="visible"
         )
+        desktop.set_viewport_size({"width": 1920, "height": 277})
+        desktop.locator(".admin-card--infra").scroll_into_view_if_needed()
         desktop.locator(".admin-card--infra .switch").click()
+        desktop.wait_for_function(
+            "() => !document.querySelector('#settings-form button').disabled"
+        )
+        compact_layout = desktop.evaluate(
+            """() => {
+              const workspace = document.querySelector('#workspace').getBoundingClientRect();
+              const main = document.querySelector('#main-content').getBoundingClientRect();
+              return {
+                scrollY,
+                viewportHeight: innerHeight,
+                workspaceTop: Math.round(workspace.top),
+                workspaceBottom: Math.round(workspace.bottom),
+                mainTop: Math.round(main.top),
+                mainBottom: Math.round(main.bottom),
+              };
+            }"""
+        )
+        assert compact_layout == {
+            "scrollY": 0,
+            "viewportHeight": 277,
+            "workspaceTop": 0,
+            "workspaceBottom": 277,
+            "mainTop": 0,
+            "mainBottom": 277,
+        }, compact_layout
+        desktop.set_viewport_size({"width": 1440, "height": 1000})
         desktop.locator('.nav-item[data-view="chat"]').click()
         desktop.locator("#infra-agent-option").wait_for(state="visible")
         desktop.locator("#data-agent-option").wait_for(state="visible")

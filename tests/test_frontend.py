@@ -17,7 +17,7 @@ def test_spa_shell_is_served(client):
     assert 'name="identifier"' in response.text
     assert "crypto.getRandomValues" in client.get("/assets/app.js").text
     assert 'assets/app.js?v=20260809a' in response.text
-    assert 'assets/styles.css?v=20260809a' in response.text
+    assert 'assets/styles.css?v=20260810a' in response.text
     assert 'id="rag-drop"' in response.text
     assert 'id="rag-file"' in response.text
     assert "multiple" in response.text

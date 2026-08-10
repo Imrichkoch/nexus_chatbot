@@ -362,14 +362,16 @@ input:focus, textarea:focus {
 }
 
 .workspace {
-  height: 100vh;
-  height: 100dvh;
+  position: fixed;
+  inset: 0;
+  min-height: 0;
+  overflow: clip;
   display: grid;
   grid-template-columns: var(--sidebar) minmax(0, 1fr);
 }
 .sidebar {
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
+  min-height: 0;
   padding: 24px 18px 18px;
   display: flex;
   flex-direction: column;
@@ -519,8 +521,8 @@ kbd {
 
 .main {
   min-width: 0;
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-rows: 64px minmax(0, 1fr);
   background:
