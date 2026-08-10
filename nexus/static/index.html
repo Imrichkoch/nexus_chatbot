@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/styles.css?v=20260810a">
-  <script src="assets/app.js?v=20260809a" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260810b">
+  <script src="assets/app.js?v=20260810a" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
@@ -313,13 +313,13 @@
           <article class="admin-card">
             <div class="card-heading">
               <div><span class="section-index">A3</span><h3>Knowledge / RAG</h3></div>
-              <label class="switch"><input id="rag-enabled" name="rag_enabled" type="checkbox" aria-label="Zapnúť alebo vypnúť RAG"><span></span></label>
+              <label class="switch"><input id="rag-enabled" name="rag_enabled" form="settings-form" type="checkbox" aria-label="Zapnúť alebo vypnúť RAG"><span></span></label>
             </div>
             <p class="card-copy">Lokálna znalostná báza. Relevantné pasáže sa pripájajú k otázke a v odpovedi sa zobrazia zdroje.</p>
             <div class="rag-controls">
               <label>
                 <span>Max. počet pasáží</span>
-                <input id="rag-max-chunks" name="rag_max_chunks" type="number" min="1" max="12" value="4" inputmode="numeric" autocomplete="off">
+                <input id="rag-max-chunks" name="rag_max_chunks" form="settings-form" type="number" min="1" max="12" value="4" inputmode="numeric" autocomplete="off">
               </label>
               <label id="rag-drop" class="file-drop" for="rag-file" tabindex="0">
                 <strong>＋ PRIDAŤ ALEBO PRETIAHNUŤ SÚBORY</strong>
@@ -334,21 +334,21 @@
           <article class="admin-card admin-card--infra">
             <div class="card-heading">
               <div><span class="section-index">A4</span><h3>Infra Agent</h3></div>
-              <label class="switch"><input id="infra-enabled" name="infra_enabled" type="checkbox" aria-label="Zapnúť alebo vypnúť Infra Agenta"><span></span></label>
+              <label class="switch"><input id="infra-enabled" name="infra_enabled" form="settings-form" type="checkbox" aria-label="Zapnúť alebo vypnúť Infra Agenta"><span></span></label>
             </div>
             <p class="card-copy">Prepínateľný minútový snapshot alebo LIVE read-only kontrola. Nemá voľný shell a nevie meniť server.</p>
             <div id="infra-snapshot-status" class="infra-status"><span></span><strong>SNAPSHOT NEDOSTUPNÝ</strong></div>
             <div class="settings-form settings-form--compact">
               <label>
                 <span>Infra model</span>
-                <input id="infra-model" name="infra_model" list="model-catalog" placeholder="openai/gpt-5.6-luna" autocomplete="off" spellcheck="false">
+                <input id="infra-model" name="infra_model" form="settings-form" list="model-catalog" placeholder="openai/gpt-5.6-luna" autocomplete="off" spellcheck="false">
               </label>
               <label class="check-row">
-                <input id="infra-admin-only" name="infra_admin_only" type="checkbox" checked>
+                <input id="infra-admin-only" name="infra_admin_only" form="settings-form" type="checkbox" checked>
                 <span>Iba administrátori</span>
               </label>
               <label class="check-row">
-                <input id="infra-live-enabled" name="infra_live_enabled" type="checkbox" checked>
+                <input id="infra-live-enabled" name="infra_live_enabled" form="settings-form" type="checkbox" checked>
                 <span>Povoliť LIVE adminom</span>
               </label>
             </div>
@@ -361,7 +361,7 @@
           <article class="admin-card admin-card--data">
             <div class="card-heading">
               <div><span class="section-index">A5</span><h3>SQL Report Agent</h3></div>
-              <label class="switch"><input id="data-enabled" name="data_enabled" type="checkbox" aria-label="Zapnúť alebo vypnúť SQL Report Agenta"><span></span></label>
+              <label class="switch"><input id="data-enabled" name="data_enabled" form="settings-form" type="checkbox" aria-label="Zapnúť alebo vypnúť SQL Report Agenta"><span></span></label>
             </div>
             <div class="data-agent-layout">
               <div>
@@ -369,10 +369,10 @@
                 <div class="settings-form settings-form--compact">
                   <label>
                     <span>Data model</span>
-                    <input id="data-model" name="data_model" list="model-catalog" placeholder="openai/gpt-5.6-luna" autocomplete="off" spellcheck="false">
+                    <input id="data-model" name="data_model" form="settings-form" list="model-catalog" placeholder="openai/gpt-5.6-luna" autocomplete="off" spellcheck="false">
                   </label>
                   <label class="check-row">
-                    <input id="data-admin-only" name="data_admin_only" type="checkbox">
+                    <input id="data-admin-only" name="data_admin_only" form="settings-form" type="checkbox">
                     <span>Iba administrátori</span>
                   </label>
                 </div>
@@ -393,6 +393,16 @@
               </div>
             </div>
           </article>
+        </div>
+        <div id="settings-dirty-bar" class="settings-dirty-bar hidden" role="status" aria-live="polite">
+          <div>
+            <strong>NEULOŽENÉ ZMENY</strong>
+            <small>Skontroluj a ulož konfiguráciu pred ukončením tejto relácie.</small>
+          </div>
+          <div class="settings-dirty-actions">
+            <button id="settings-dirty-discard" class="button" type="button">Zahodiť</button>
+            <button id="settings-dirty-save" class="button button--primary" type="submit" form="settings-form">Uložiť konfiguráciu</button>
+          </div>
         </div>
       </section>
     </main>

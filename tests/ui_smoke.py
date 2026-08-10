@@ -81,6 +81,48 @@ def run() -> None:
         desktop.wait_for_function(
             "() => !document.querySelector('#model-meta').textContent.includes('Loading')"
         )
+        original_model = desktop.locator("#settings-model").input_value()
+        original_prompt = desktop.locator("#settings-prompt").input_value()
+        draft_model = "anthropic/claude-sonnet-4.5"
+        draft_prompt = f"{original_prompt}\n\nKeep draft configuration changes visible."
+        desktop.locator("#settings-model").fill(draft_model)
+        desktop.locator("#settings-prompt").fill(draft_prompt)
+        desktop.locator("#settings-dirty-bar").wait_for(state="visible")
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-settings-dirty-desktop.png"),
+            full_page=False,
+        )
+
+        desktop.locator('.workspace-language-switcher [data-language="sk"]').click()
+        desktop.wait_for_function(
+            "() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'"
+        )
+        assert desktop.locator("#settings-model").input_value() == draft_model
+        assert desktop.locator("#settings-prompt").input_value() == draft_prompt
+        desktop.locator('.workspace-language-switcher [data-language="en"]').click()
+
+        desktop.locator('.nav-item[data-view="chat"]').click()
+        desktop.locator("#admin-nav").click()
+        desktop.wait_for_function(
+            "() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'"
+        )
+        assert desktop.locator("#settings-model").input_value() == draft_model
+        assert desktop.locator("#settings-prompt").input_value() == draft_prompt
+
+        desktop.locator("#rag-max-chunks").fill("5")
+        saved_before_submit = desktop.evaluate(
+            "async () => (await fetch('/api/admin/settings')).json()"
+        )
+        assert saved_before_submit["model"] == original_model
+        assert saved_before_submit["rag_max_chunks"] == 4
+        desktop.locator("#settings-dirty-save").click()
+        desktop.locator("#settings-dirty-bar").wait_for(state="hidden")
+        saved_after_submit = desktop.evaluate(
+            "async () => (await fetch('/api/admin/settings')).json()"
+        )
+        assert saved_after_submit["model"] == draft_model
+        assert saved_after_submit["system_prompt"] == draft_prompt
+        assert saved_after_submit["rag_max_chunks"] == 5
         orders_table = desktop.locator("#data-schema-tables").get_by_text(
             "orders", exact=True
         )
@@ -143,9 +185,9 @@ def run() -> None:
         desktop.set_viewport_size({"width": 1920, "height": 277})
         desktop.locator(".admin-card--infra").scroll_into_view_if_needed()
         desktop.locator(".admin-card--infra .switch").click()
-        desktop.wait_for_function(
-            "() => !document.querySelector('#settings-form button').disabled"
-        )
+        desktop.locator("#settings-dirty-bar").wait_for(state="visible")
+        desktop.locator("#settings-dirty-save").click()
+        desktop.locator("#settings-dirty-bar").wait_for(state="hidden")
         compact_layout = desktop.evaluate(
             """() => {
               const workspace = document.querySelector('#workspace').getBoundingClientRect();
@@ -337,6 +379,15 @@ def run() -> None:
             path=str(OUTPUT_DIR / "nexus-data-agent-mobile.png"),
             full_page=False,
         )
+        current_data_model = desktop.locator("#data-model").input_value()
+        desktop.locator("#data-model").fill(f"{current_data_model} ")
+        desktop.locator("#settings-dirty-bar").wait_for(state="visible")
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-settings-dirty-mobile.png"),
+            full_page=False,
+        )
+        desktop.locator("#settings-dirty-save").click()
+        desktop.locator("#settings-dirty-bar").wait_for(state="hidden")
         browser.close()
 
         assert not console_errors, f"Browser console errors: {console_errors}"

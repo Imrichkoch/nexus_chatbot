@@ -75,6 +75,10 @@ const TRANSLATIONS = {
   loadingCatalog: { en: "Loading model catalog…", sk: "Načítavam katalóg modelov…" },
   systemInstructions: { en: "System instructions", sk: "Systémové inštrukcie" },
   saveConfiguration: { en: "Save configuration", sk: "Uložiť konfiguráciu" },
+  unsavedChanges: { en: "UNSAVED CHANGES", sk: "NEULOŽENÉ ZMENY" },
+  unsavedChangesCopy: { en: "Review and save the configuration before leaving this session.", sk: "Skontroluj a ulož konfiguráciu pred ukončením tejto relácie." },
+  discardChanges: { en: "Discard", sk: "Zahodiť" },
+  discardChangesPrompt: { en: "Discard unsaved configuration changes?", sk: "Zahodiť neuložené zmeny konfigurácie?" },
   ragToggle: { en: "Enable or disable RAG", sk: "Zapnúť alebo vypnúť RAG" },
   ragCopy: { en: "Local knowledge base. Relevant passages are attached to the question and sources are shown with the answer.", sk: "Lokálna znalostná báza. Relevantné pasáže sa pripájajú k otázke a v odpovedi sa zobrazia zdroje." },
   maxPassages: { en: "Max. passages", sk: "Max. počet pasáží" },
@@ -178,7 +182,7 @@ const state = {
   capabilities: null,
   models: [],
   settingsSaving: false,
-  settingsQueued: false,
+  settingsDirty: false,
   ragUploading: false,
 };
 
@@ -1213,17 +1217,19 @@ async function loadAdmin() {
     $("#metric-messages").textContent = overview.messages_total;
     $("#users-status").textContent = t("accountsCount", { count: users.length });
     renderUsers(users);
-    $("#settings-model").value = settings.model;
-    $("#settings-prompt").value = settings.system_prompt;
-    $("#rag-enabled").checked = settings.rag_enabled;
-    $("#rag-max-chunks").value = settings.rag_max_chunks;
-    $("#infra-enabled").checked = settings.infra_agent_enabled;
-    $("#infra-admin-only").checked = settings.infra_agent_admin_only;
-    $("#infra-live-enabled").checked = settings.infra_live_enabled;
-    $("#infra-model").value = settings.infra_model;
-    $("#data-enabled").checked = settings.data_agent_enabled;
-    $("#data-admin-only").checked = settings.data_agent_admin_only;
-    $("#data-model").value = settings.data_model;
+    if (!state.settingsDirty) {
+      $("#settings-model").value = settings.model;
+      $("#settings-prompt").value = settings.system_prompt;
+      $("#rag-enabled").checked = settings.rag_enabled;
+      $("#rag-max-chunks").value = settings.rag_max_chunks;
+      $("#infra-enabled").checked = settings.infra_agent_enabled;
+      $("#infra-admin-only").checked = settings.infra_agent_admin_only;
+      $("#infra-live-enabled").checked = settings.infra_live_enabled;
+      $("#infra-model").value = settings.infra_model;
+      $("#data-enabled").checked = settings.data_agent_enabled;
+      $("#data-admin-only").checked = settings.data_agent_admin_only;
+      $("#data-model").value = settings.data_model;
+    }
     $("#sidebar-model").textContent = settings.model;
     $("#api-status").textContent = settings.api_configured ? "API ONLINE" : "API MISSING";
     $("#api-status").style.color = settings.api_configured ? "var(--mint)" : "var(--danger)";
@@ -1573,51 +1579,57 @@ function settingsPayload() {
   };
 }
 
+function setSettingsDirty(dirty) {
+  state.settingsDirty = Boolean(dirty);
+  show($("#settings-dirty-bar"), state.settingsDirty);
+}
+
 async function saveSettings(form) {
-  state.settingsQueued = true;
   if (state.settingsSaving) return;
   state.settingsSaving = true;
-  const button = form.querySelector("button");
-  button.dataset.originalLabel ||= button.textContent;
-  button.textContent = t("saving");
-  button.disabled = true;
-  let savedSettings = null;
-  let failure = null;
+  const buttons = [...new Set([
+    form.querySelector('button[type="submit"]'),
+    $("#settings-dirty-save"),
+  ].filter(Boolean))];
+  buttons.forEach((button) => {
+    button.dataset.originalLabel = button.textContent;
+    button.textContent = t("saving");
+    button.disabled = true;
+  });
   try {
-    while (state.settingsQueued) {
-      state.settingsQueued = false;
-      try {
-        savedSettings = await api("/admin/settings", {
-          method: "PUT",
-          body: JSON.stringify(settingsPayload()),
-        });
-      } catch (error) {
-        failure = error;
-        state.settingsQueued = false;
-      }
-    }
-  } finally {
-    state.settingsSaving = false;
-    button.textContent = button.dataset.originalLabel;
-    button.disabled = false;
-  }
-  if (failure) {
-    toast(failure.message, "error");
-    await loadAdmin();
-    return;
-  }
-  if (savedSettings) {
+    const savedSettings = await api("/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify(settingsPayload()),
+    });
     $("#sidebar-model").textContent = savedSettings.model;
+    setSettingsDirty(false);
     await loadCapabilities();
     toast(t("settingsSaved"));
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    state.settingsSaving = false;
+    buttons.forEach((button) => {
+      button.textContent = button.dataset.originalLabel;
+      button.disabled = false;
+    });
   }
 }
 
+async function discardSettings() {
+  if (!state.settingsDirty) return;
+  if (!window.confirm(t("discardChangesPrompt"))) return;
+  setSettingsDirty(false);
+  await loadAdmin();
+}
+
 async function logout(notify = true) {
+  if (notify && state.settingsDirty && !window.confirm(t("discardChangesPrompt"))) return;
   try {
     await api("/auth/logout", { method: "POST" });
   } catch {}
   state.user = null;
+  setSettingsDirty(false);
   state.activeConversation = null;
   state.conversationsByAgent = { general: [], infra: [], data: [] };
   state.activeConversationByAgent = {
@@ -1735,6 +1747,7 @@ function bindEvents() {
     event.preventDefault();
     saveSettings(event.currentTarget);
   });
+  $("#settings-dirty-discard").addEventListener("click", discardSettings);
   $("#admin-user-create-form").addEventListener("submit", (event) => {
     event.preventDefault();
     createAdminUser(event.currentTarget);
@@ -1755,15 +1768,19 @@ function bindEvents() {
   );
   $("#settings-model").addEventListener("input", updateModelMeta);
   [
+    "#settings-model",
+    "#settings-prompt",
     "#rag-enabled",
     "#rag-max-chunks",
     "#infra-enabled",
     "#infra-admin-only",
     "#infra-live-enabled",
+    "#infra-model",
     "#data-enabled",
     "#data-admin-only",
+    "#data-model",
   ].forEach(
-    (selector) => $(selector).addEventListener("change", () => saveSettings($("#settings-form"))),
+    (selector) => $(selector).addEventListener("input", () => setSettingsDirty(true)),
   );
   $("#rag-file").addEventListener("change", (event) =>
     uploadRagDocuments(event.target.files),
@@ -1824,6 +1841,11 @@ function bindEvents() {
       closeSidebar(true);
       setUserMenu(false);
     }
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (!state.settingsDirty) return;
+    event.preventDefault();
+    event.returnValue = "";
   });
   syncSidebarAccessibility();
 }

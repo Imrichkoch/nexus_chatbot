@@ -1031,6 +1031,27 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
 .status-toggle.disabled { color: var(--danger); }
 .settings-form { margin-top: 24px; display: grid; gap: 18px; }
 .settings-form--compact { grid-template-columns: 1fr auto; align-items: end; }
+.settings-dirty-bar {
+  position: sticky;
+  z-index: 15;
+  bottom: 12px;
+  width: min(760px, 100%);
+  margin: 18px auto 0;
+  padding: 13px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--acid);
+  background: rgba(13, 27, 22, .97);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, .48);
+}
+.settings-dirty-bar strong,
+.settings-dirty-bar small { display: block; }
+.settings-dirty-bar strong { color: var(--acid); font-family: var(--mono); font-size: 9px; letter-spacing: .12em; }
+.settings-dirty-bar small { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.settings-dirty-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.settings-dirty-actions .button { min-height: 40px; white-space: nowrap; }
 .field-note {
   display: block;
   margin-top: 7px;
@@ -1276,6 +1297,9 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
   .metric-grid strong { font-size: 32px; }
   .admin-card { padding: 18px 12px; }
   .rag-controls, .settings-form--compact, .admin-user-create-fields { grid-template-columns: 1fr; }
+  .settings-dirty-bar { bottom: max(8px, env(safe-area-inset-bottom)); align-items: stretch; flex-direction: column; }
+  .settings-dirty-actions { display: grid; grid-template-columns: .8fr 1.2fr; }
+  .settings-dirty-actions .button { width: 100%; }
   .admin-user-create-actions { align-items: stretch; flex-direction: column; }
   .admin-user-create-actions .button { width: 100%; }
   .admin-password-control { grid-template-columns: 1fr 1fr; }
