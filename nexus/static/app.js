@@ -1,6 +1,6 @@
 const basePath = window.location.pathname.startsWith("/nexus") ? "/nexus" : "";
 const apiBase = `${basePath}/api`;
-const RAG_MAX_FILES_PER_BATCH = 50;
+const RAG_MAX_FILES_PER_BATCH = 1000;
 const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
 const RAG_UPLOAD_CONCURRENCY = 4;
@@ -83,7 +83,7 @@ const TRANSLATIONS = {
   ragCopy: { en: "Local knowledge base. Relevant passages are attached to the question and sources are shown with the answer.", sk: "Lokálna znalostná báza. Relevantné pasáže sa pripájajú k otázke a v odpovedi sa zobrazia zdroje." },
   maxPassages: { en: "Max. passages", sk: "Max. počet pasáží" },
   addFiles: { en: "＋ ADD OR DROP FILES", sk: "＋ PRIDAŤ ALEBO PRETIAHNUŤ SÚBORY" },
-  fileLimits: { en: "TXT, MD, JSON, YAML, CSV, or LOG · max 50 at once · 10 MB/file", sk: "TXT, MD, JSON, YAML, CSV alebo LOG · max 50 naraz · 10 MB/súbor" },
+  fileLimits: { en: "TXT, MD, JSON, YAML, CSV, or LOG · max 1000 at once · 10 MB/file · 50 MB/batch", sk: "TXT, MD, JSON, YAML, CSV alebo LOG · max 1000 naraz · 10 MB/súbor · 50 MB/dávka" },
   infraToggle: { en: "Enable or disable Infra Agent", sk: "Zapnúť alebo vypnúť Infra Agenta" },
   infraCopy: { en: "Switchable one-minute snapshot or LIVE read-only check. It has no unrestricted shell and cannot change the server.", sk: "Prepínateľný minútový snapshot alebo LIVE read-only kontrola. Nemá voľný shell a nevie meniť server." },
   snapshotUnavailable: { en: "SNAPSHOT UNAVAILABLE", sk: "SNAPSHOT NEDOSTUPNÝ" },

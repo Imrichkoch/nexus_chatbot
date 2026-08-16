@@ -16,7 +16,7 @@ def test_spa_shell_is_served(client):
     assert 'id="admin-user-email"' not in response.text
     assert 'name="identifier"' in response.text
     assert "crypto.getRandomValues" in client.get("/assets/app.js").text
-    assert 'assets/app.js?v=20260810a' in response.text
+    assert 'assets/app.js?v=20260816a' in response.text
     assert 'assets/styles.css?v=20260810b' in response.text
     assert 'id="settings-dirty-bar"' in response.text
     assert 'id="settings-dirty-save"' in response.text
@@ -29,6 +29,11 @@ def test_spa_shell_is_served(client):
     assert 'data-language="sk"' in response.text
     assert "nexus_language" in client.get("/assets/app.js").text
     assert "TRANSLATIONS" in client.get("/assets/app.js").text
+    assert "RAG_MAX_FILES_PER_BATCH = 1000" in client.get("/assets/app.js").text
+    assert "max 1000 at once" in client.get("/assets/app.js").text
+    assert "50 MB/batch" in client.get("/assets/app.js").text
+    assert "max 1000 naraz" in response.text
+    assert "50 MB/dávka" in response.text
 
 
 def test_security_headers_and_host_validation(client):

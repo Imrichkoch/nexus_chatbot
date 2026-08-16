@@ -81,6 +81,7 @@ def run() -> None:
         desktop.wait_for_function(
             "() => !document.querySelector('#model-meta').textContent.includes('Loading')"
         )
+        assert "max 1000 at once" in desktop.locator("#rag-drop").inner_text()
         original_model = desktop.locator("#settings-model").input_value()
         original_prompt = desktop.locator("#settings-prompt").input_value()
         draft_model = "anthropic/claude-sonnet-4.5"
