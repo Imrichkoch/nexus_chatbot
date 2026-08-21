@@ -24,7 +24,7 @@ The service has five principal boundaries:
 
 ### RAG ingestion
 
-Administrators can select or drag up to 50 files per batch. The browser validates a
+Administrators can select or drag up to 1,000 files per batch. The browser validates a
 10 MiB per-file limit and a 50 MiB batch limit, then uploads up to four documents in
 parallel. Each document is independently validated and committed, so one rejected
 file does not roll back successful files from the same selection. The application
