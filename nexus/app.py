@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 import sqlite3
 import time
-import logging
-import json
 from collections import defaultdict, deque
 from pathlib import Path
 from threading import Lock
@@ -33,7 +33,7 @@ from nexus.store import Store
 COOKIE_NAME = "nexus_session"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-LOGGER = logging.getLogger("nexuschat")
+LOGGER = logging.getLogger("uvicorn.error.nexuschat")
 RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024
 
 

@@ -1,10 +1,12 @@
 import json
+import logging
 
 from conftest import login, register
 from nexus.ai import AIUnavailable
 
 
-def test_user_can_create_conversation_and_receive_ai_reply(client, app):
+def test_user_can_create_conversation_and_receive_ai_reply(client, app, caplog):
+    caplog.set_level(logging.INFO, logger="uvicorn.error.nexuschat")
     assert register(client).status_code == 201
     created = client.post("/api/conversations", json={"title": "Prvý chat"})
     assert created.status_code == 201
@@ -22,6 +24,7 @@ def test_user_can_create_conversation_and_receive_ai_reply(client, app):
     assert body["performance"]["provider_ms"] >= 0
     assert body["performance"]["total_ms"] >= body["performance"]["provider_ms"]
     assert body["performance"]["rag_chunks"] == 0
+    assert "chat.performance" in caplog.text
     assert app.state.fake_ai.calls[0]["messages"][-1]["content"].startswith("Vysvetli")
 
     detail = client.get(f"/api/conversations/{conversation_id}")
