@@ -57,8 +57,10 @@ sudo systemctl reload nginx
 
 The Uvicorn listener should remain bound to loopback unless another authenticated network layer is intentionally used.
 
-The proxy template permits 12 MiB request bodies for the application's 10 MiB
-per-file RAG limit. Keep both values aligned if the upload limit changes.
+The proxy template permits 64 MiB request bodies for the application's 50 MiB raw
+RAG batch limit plus JSON framing overhead. It also disables response buffering so
+NDJSON chat deltas reach the browser immediately. Keep the proxy body limit above
+the application batch limit if either value changes.
 
 ## 5. Infra snapshot timer
 

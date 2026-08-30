@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import re
-from typing import Any
+from typing import Any, Iterator
 
 from openai import OpenAI
 
@@ -42,6 +42,30 @@ class OpenAIProvider:
                 system_prompt=system_prompt,
             )
         return self._responses_reply(
+            messages=messages,
+            user_id=user_id,
+            model=model,
+            system_prompt=system_prompt,
+        )
+
+    def stream_reply(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        user_id: int,
+        model: str,
+        system_prompt: str,
+    ) -> Iterator[dict[str, Any]]:
+        if not self.api_key:
+            raise AIUnavailable("OpenAI API kľúč nie je nakonfigurovaný.")
+        if self.base_url:
+            yield from self._chat_completions_stream(
+                messages=messages,
+                model=model,
+                system_prompt=system_prompt,
+            )
+            return
+        yield from self._responses_stream(
             messages=messages,
             user_id=user_id,
             model=model,
@@ -211,4 +235,93 @@ class OpenAIProvider:
             "model": model,
             "input_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
             "output_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+        }
+
+    def _chat_completions_stream(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        model: str,
+        system_prompt: str,
+    ) -> Iterator[dict[str, Any]]:
+        client_kwargs: dict[str, Any] = {
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+            "timeout": 90.0,
+            "max_retries": 2,
+        }
+        if "openrouter.ai" in self.base_url:
+            client_kwargs["default_headers"] = {
+                "HTTP-Referer": "https://raizenko.cloud/nexus/",
+                "X-Title": "NexusChat",
+            }
+        client = OpenAI(**client_kwargs)
+        stream = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *[
+                    {"role": message["role"], "content": message["content"]}
+                    for message in messages[-24:]
+                ],
+            ],
+            max_tokens=1800,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        input_tokens = 0
+        output_tokens = 0
+        for chunk in stream:
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+                output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+            choices = getattr(chunk, "choices", None) or []
+            if choices:
+                content = getattr(choices[0].delta, "content", None)
+                if content:
+                    yield {"type": "delta", "content": content}
+        yield {
+            "type": "completed",
+            "model": model,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        }
+
+    def _responses_stream(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        user_id: int,
+        model: str,
+        system_prompt: str,
+    ) -> Iterator[dict[str, Any]]:
+        client = OpenAI(api_key=self.api_key, timeout=90.0, max_retries=2)
+        with client.responses.stream(
+            model=model,
+            instructions=system_prompt,
+            input=[
+                {"role": message["role"], "content": message["content"]}
+                for message in messages[-24:]
+            ],
+            reasoning={"effort": "low"},
+            text={"verbosity": "medium"},
+            max_output_tokens=1800,
+            store=False,
+            safety_identifier=hashlib.sha256(
+                f"nexus-user-{user_id}".encode("utf-8")
+            ).hexdigest()[:32],
+        ) as stream:
+            for event in stream:
+                if getattr(event, "type", "") == "response.output_text.delta":
+                    delta = getattr(event, "delta", "")
+                    if delta:
+                        yield {"type": "delta", "content": delta}
+            response = stream.get_final_response()
+        usage = getattr(response, "usage", None)
+        yield {
+            "type": "completed",
+            "model": model,
+            "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
         }

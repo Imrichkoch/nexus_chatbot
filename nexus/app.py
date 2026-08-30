@@ -5,13 +5,14 @@ import re
 import sqlite3
 import time
 import logging
+import json
 from collections import defaultdict, deque
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -33,6 +34,7 @@ COOKIE_NAME = "nexus_session"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOGGER = logging.getLogger("nexuschat")
+RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024
 
 
 class RegisterPayload(BaseModel):
@@ -73,7 +75,7 @@ class SettingsPayload(BaseModel):
     model: str = Field(min_length=3, max_length=80)
     system_prompt: str = Field(min_length=20, max_length=4000)
     rag_enabled: bool = False
-    rag_max_chunks: int = Field(default=4, ge=1, le=12)
+    rag_max_chunks: int = Field(default=6, ge=1, le=12)
     infra_agent_enabled: bool = False
     infra_agent_admin_only: bool = True
     infra_live_enabled: bool = True
@@ -86,6 +88,10 @@ class SettingsPayload(BaseModel):
 class RagDocumentPayload(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     content: str = Field(min_length=1)
+
+
+class RagDocumentsBatchPayload(BaseModel):
+    documents: list[RagDocumentPayload] = Field(min_length=1, max_length=1000)
 
 
 class SlidingWindowLimiter:
@@ -399,6 +405,8 @@ def create_app(
         request: Request,
         user: dict[str, Any] = Depends(current_user),
     ):
+        request_started = time.monotonic()
+        rag_ms = 0.0
         content = payload.content.strip()
         if not content:
             raise HTTPException(status_code=422, detail="Správa nemôže byť prázdna.")
@@ -471,9 +479,11 @@ def create_app(
         model = settings["model"]
         rag_sources: list[dict[str, Any]] = []
         if settings.get("rag_enabled") == "1" and payload.agent_mode != "data":
+            rag_started = time.monotonic()
             chunks = app.state.store.search_rag(
-                content, int(settings.get("rag_max_chunks", "4"))
+                content, int(settings.get("rag_max_chunks", "6"))
             )
+            rag_ms = (time.monotonic() - rag_started) * 1000
             if chunks:
                 context = "\n\n".join(
                     f"[KB:{chunk['document']}#{chunk['chunk_index']}]\n{chunk['content']}"
@@ -531,6 +541,7 @@ def create_app(
                     "generated_at": snapshot["generated_at"],
                 }
             )
+        provider_started = time.monotonic()
         try:
             if payload.agent_mode == "data":
                 result = app.state.data_agent.answer(
@@ -577,7 +588,294 @@ def create_app(
             sources=rag_sources,
             agent_mode=payload.agent_mode,
         )
-        return {"user": user_message, "assistant": assistant_message}
+        performance = {
+            "rag_ms": round(rag_ms, 2),
+            "provider_ms": round((time.monotonic() - provider_started) * 1000, 2),
+            "total_ms": round((time.monotonic() - request_started) * 1000, 2),
+            "rag_chunks": sum(1 for source in rag_sources if source.get("document")),
+            "prompt_characters": len(system_prompt)
+            + sum(len(message["content"]) for message in prompt_messages[-24:]),
+        }
+        LOGGER.info(
+            "chat.performance mode=%s rag_ms=%.2f provider_ms=%.2f total_ms=%.2f "
+            "rag_chunks=%s prompt_characters=%s input_tokens=%s output_tokens=%s",
+            payload.agent_mode,
+            performance["rag_ms"],
+            performance["provider_ms"],
+            performance["total_ms"],
+            performance["rag_chunks"],
+            performance["prompt_characters"],
+            result.get("input_tokens", 0),
+            result.get("output_tokens", 0),
+        )
+        return {
+            "user": user_message,
+            "assistant": assistant_message,
+            "performance": performance,
+        }
+
+    @app.post("/api/conversations/{conversation_id}/messages/stream")
+    def stream_message(
+        conversation_id: int,
+        payload: MessagePayload,
+        request: Request,
+        user: dict[str, Any] = Depends(current_user),
+    ):
+        # The data agent performs a planner call before its report call, so it keeps
+        # the existing atomic path and emits the completed report as one event.
+        if payload.agent_mode == "data":
+            completed = send_message(conversation_id, payload, request, user)
+
+            def completed_data_stream():
+                yield json.dumps(
+                    {
+                        "type": "delta",
+                        "content": completed["assistant"]["content"],
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
+                yield json.dumps(
+                    {"type": "done", **completed}, ensure_ascii=False
+                ) + "\n"
+
+            return StreamingResponse(
+                completed_data_stream(),
+                media_type="application/x-ndjson",
+                headers={"X-Accel-Buffering": "no"},
+            )
+
+        request_started = time.monotonic()
+        content = payload.content.strip()
+        if not content:
+            raise HTTPException(status_code=422, detail="Správa nemôže byť prázdna.")
+        if len(content) > 12000:
+            raise HTTPException(status_code=422, detail="Správa je príliš dlhá.")
+        if not app.state.limiter.check(f"chat:{user['id']}", 30, 60):
+            raise HTTPException(status_code=429, detail="Spomaľ, prosím.")
+        conversation = app.state.store.get_conversation(conversation_id, user["id"])
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Konverzácia neexistuje.")
+        settings = app.state.store.get_settings()
+        if conversation["agent_mode"] != payload.agent_mode:
+            raise HTTPException(
+                status_code=409,
+                detail="Tento chat patrí inému agentovi. Prepnite na jeho samostatný chat.",
+            )
+        if payload.agent_mode != "infra" and payload.infra_source != "snapshot":
+            raise HTTPException(
+                status_code=422,
+                detail="LIVE zdroj je dostupný iba v INFRA chate.",
+            )
+        if payload.agent_mode == "infra":
+            if settings.get("infra_agent_enabled") != "1":
+                raise HTTPException(status_code=403, detail="Infra Agent je vypnutý.")
+            if (
+                settings.get("infra_agent_admin_only", "1") == "1"
+                and user["role"] != "admin"
+            ):
+                raise HTTPException(
+                    status_code=403, detail="Infra Agent je dostupný iba adminom."
+                )
+            if payload.infra_source == "live":
+                if settings.get("infra_live_enabled", "1") != "1":
+                    raise HTTPException(
+                        status_code=403,
+                        detail="LIVE Infra je vypnutá administrátorom.",
+                    )
+                if user["role"] != "admin":
+                    raise HTTPException(
+                        status_code=403,
+                        detail="LIVE Infra je dostupná iba administrátorom.",
+                    )
+                if not app.state.limiter.check(f"infra-live:{user['id']}", 10, 60):
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Príliš veľa LIVE kontrol. Skús to o chvíľu.",
+                    )
+
+        prompt_messages = [
+            *conversation["messages"],
+            {"role": "user", "content": content},
+        ]
+        system_prompt = settings["system_prompt"]
+        model = settings["model"]
+        rag_sources: list[dict[str, Any]] = []
+        rag_ms = 0.0
+        if settings.get("rag_enabled") == "1":
+            rag_started = time.monotonic()
+            chunks = app.state.store.search_rag(
+                content, int(settings.get("rag_max_chunks", "6"))
+            )
+            rag_ms = (time.monotonic() - rag_started) * 1000
+            if chunks:
+                context = "\n\n".join(
+                    f"[KB:{chunk['document']}#{chunk['chunk_index']}]\n{chunk['content']}"
+                    for chunk in chunks
+                )
+                system_prompt += (
+                    "\n\nKNOWLEDGE BASE CONTEXT\n"
+                    "Použi tento kontext iba ak je relevantný. Pri použití cituj "
+                    "značku [KB:názov#chunk].\n\n"
+                    f"{context}"
+                )
+                rag_sources = [
+                    {
+                        "document": chunk["document"],
+                        "chunk": chunk["chunk_index"],
+                    }
+                    for chunk in chunks
+                ]
+        if payload.agent_mode == "infra":
+            if payload.infra_source == "live":
+                try:
+                    snapshot = app.state.live_infra_collector()
+                except Exception:
+                    LOGGER.exception(
+                        "Live infrastructure collection failed for user=%s",
+                        user["id"],
+                    )
+                    raise HTTPException(
+                        status_code=503,
+                        detail="LIVE údaje servera sa nepodarilo bezpečne načítať.",
+                    )
+                app.state.store.audit(
+                    user["id"],
+                    "infra.live.read",
+                    f"conversation:{conversation_id}",
+                )
+            else:
+                try:
+                    snapshot = read_snapshot(app.state.infra_snapshot_path)
+                except InfraSnapshotError as error:
+                    raise HTTPException(status_code=503, detail=str(error))
+            if not isinstance(snapshot, dict) or not snapshot.get("generated_at"):
+                raise HTTPException(
+                    status_code=503, detail="Infra údaje nemajú platný formát."
+                )
+            system_prompt = f"{infra_prompt(snapshot, payload.infra_source)}\n\n{system_prompt}"
+            model = settings.get("infra_model", settings["model"])
+            rag_sources.append(
+                {
+                    "type": "infra",
+                    "mode": payload.infra_source,
+                    "generated_at": snapshot["generated_at"],
+                }
+            )
+
+        def ndjson_stream():
+            provider_started = time.monotonic()
+            response_parts: list[str] = []
+            result: dict[str, Any] = {
+                "model": model,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            }
+            try:
+                if hasattr(app.state.ai_provider, "stream_reply"):
+                    events = app.state.ai_provider.stream_reply(
+                        messages=prompt_messages,
+                        user_id=user["id"],
+                        model=model,
+                        system_prompt=system_prompt,
+                    )
+                else:
+                    fallback = app.state.ai_provider.reply(
+                        messages=prompt_messages,
+                        user_id=user["id"],
+                        model=model,
+                        system_prompt=system_prompt,
+                    )
+                    events = iter(
+                        [
+                            {"type": "delta", "content": fallback.get("text", "")},
+                            {"type": "completed", **fallback},
+                        ]
+                    )
+                for event in events:
+                    if event.get("type") == "delta":
+                        delta = str(event.get("content", ""))
+                        if delta:
+                            response_parts.append(delta)
+                            yield json.dumps(event, ensure_ascii=False) + "\n"
+                    elif event.get("type") == "completed":
+                        result.update(event)
+            except Exception:
+                LOGGER.exception(
+                    "Streaming AI provider failed for user=%s conversation=%s",
+                    user["id"],
+                    conversation_id,
+                )
+                yield json.dumps(
+                    {
+                        "type": "error",
+                        "detail": "AI služba momentálne neodpovedá. Skús to znova.",
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
+                return
+
+            response_text = "".join(response_parts).strip()
+            if not response_text:
+                yield json.dumps(
+                    {
+                        "type": "error",
+                        "detail": "AI vrátila prázdnu odpoveď. Skús požiadavku odoslať znova.",
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
+                return
+            user_message, assistant_message = app.state.store.add_exchange(
+                conversation_id,
+                user_content=content,
+                assistant_content=response_text,
+                model=result.get("model", model),
+                input_tokens=result.get("input_tokens", 0),
+                output_tokens=result.get("output_tokens", 0),
+                sources=rag_sources,
+                agent_mode=payload.agent_mode,
+            )
+            performance = {
+                "rag_ms": round(rag_ms, 2),
+                "provider_ms": round(
+                    (time.monotonic() - provider_started) * 1000, 2
+                ),
+                "total_ms": round((time.monotonic() - request_started) * 1000, 2),
+                "rag_chunks": sum(
+                    1 for source in rag_sources if source.get("document")
+                ),
+                "prompt_characters": len(system_prompt)
+                + sum(len(message["content"]) for message in prompt_messages[-24:]),
+            }
+            LOGGER.info(
+                "chat.performance mode=%s rag_ms=%.2f provider_ms=%.2f total_ms=%.2f "
+                "rag_chunks=%s prompt_characters=%s input_tokens=%s output_tokens=%s",
+                payload.agent_mode,
+                performance["rag_ms"],
+                performance["provider_ms"],
+                performance["total_ms"],
+                performance["rag_chunks"],
+                performance["prompt_characters"],
+                result.get("input_tokens", 0),
+                result.get("output_tokens", 0),
+            )
+            yield json.dumps(
+                {
+                    "type": "done",
+                    "user": user_message,
+                    "assistant": assistant_message,
+                    "performance": performance,
+                },
+                ensure_ascii=False,
+            ) + "\n"
+
+        return StreamingResponse(
+            ndjson_stream(),
+            media_type="application/x-ndjson",
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache, no-transform",
+            },
+        )
 
     @app.get("/api/admin/overview")
     def admin_overview(
@@ -647,7 +945,7 @@ def create_app(
             "model": settings["model"],
             "system_prompt": settings["system_prompt"],
             "rag_enabled": settings.get("rag_enabled") == "1",
-            "rag_max_chunks": int(settings.get("rag_max_chunks", "4")),
+            "rag_max_chunks": int(settings.get("rag_max_chunks", "6")),
             "infra_agent_enabled": settings.get("infra_agent_enabled") == "1",
             "infra_agent_admin_only": settings.get("infra_agent_admin_only", "1")
             == "1",
@@ -760,6 +1058,31 @@ def create_app(
         document = app.state.store.create_rag_document(name, content)
         app.state.store.audit(actor["id"], "rag.create", f"document:{document['id']}")
         return document
+
+    @app.post("/api/admin/rag/documents/batch", status_code=201)
+    def admin_create_rag_documents_batch(
+        payload: RagDocumentsBatchPayload,
+        actor: dict[str, Any] = Depends(admin_user),
+    ):
+        validated: list[tuple[str, str]] = []
+        total_bytes = 0
+        try:
+            for item in payload.documents:
+                name, content = validate_document(item.name, item.content)
+                total_bytes += len(content.encode("utf-8"))
+                if total_bytes > RAG_MAX_BATCH_BYTES:
+                    raise OverflowError("Dávka dokumentov môže mať najviac 50 MB.")
+                validated.append((name, content))
+        except OverflowError as error:
+            raise HTTPException(status_code=413, detail=str(error))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+        documents = app.state.store.create_rag_documents(validated)
+        app.state.store.audit(
+            actor["id"], "rag.create_batch", f"documents:{len(documents)}"
+        )
+        return {"documents": documents}
 
     @app.delete("/api/admin/rag/documents/{document_id}", status_code=204)
     def admin_delete_rag_document(

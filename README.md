@@ -100,7 +100,7 @@ Legacy mixed-agent histories are migrated during store initialization using the 
 
 ### Message request pipeline
 
-All three agents enter through `POST /api/conversations/{id}/messages`:
+All three agents enter through the message pipeline. The browser uses `POST /api/conversations/{id}/messages/stream`; the non-streaming `/messages` endpoint remains available for API clients:
 
 ```text
 validate input
@@ -112,7 +112,9 @@ validate input
   -> atomically store the user and assistant messages
 ```
 
-The model is called before either message is persisted. `Store.add_exchange()` then writes the complete user/assistant pair and updates the conversation timestamp in one SQLite transaction. Provider, RAG, snapshot, LIVE collection, report-generation, or SQL failures therefore do not leave an orphaned user message in chat history. If persistence itself fails after an external call succeeds, the exchange is not committed even though provider usage may already have occurred.
+Nexus and Infra responses are delivered as newline-delimited JSON deltas and rendered immediately. `X-Accel-Buffering: no` plus the reference nginx configuration prevent reverse-proxy buffering. The Data agent requires a complete SQL plan and bounded result before report generation, so it uses the same streaming protocol but may emit its report in one completed delta.
+
+The model is called before either message is persisted. `Store.add_exchange()` then writes the complete user/assistant pair and updates the conversation timestamp in one SQLite transaction. Provider, RAG, snapshot, LIVE collection, report-generation, SQL, or interrupted streaming failures therefore do not leave an orphaned user message in chat history. If persistence itself fails after an external call succeeds, the exchange is not committed even though provider usage may already have occurred.
 
 Message submission has no idempotency key. A client that retries after losing the HTTP response cannot prove whether the first request committed, so callers should reload the conversation before retrying uncertain submissions.
 
@@ -137,19 +139,21 @@ Uploading files and retrieving passages are deliberately separate operations wit
 #### Ingestion
 
 1. The browser accepts TXT, Markdown, JSON, YAML, CSV, and LOG files through selection or drag and drop.
-2. It accepts up to 1,000 files in one selection, enforces 10 MiB per file and 50 MiB for the complete batch, and runs four upload workers.
-3. Each file is sent as an independent request. A rejected file does not roll back other successful uploads. While one batch is active, the browser rejects a second batch rather than interleaving both queues.
+2. It accepts up to 1,000 files in one selection and enforces 10 MiB per file and 50 MiB for the complete batch.
+3. All selected files are sent to the batch endpoint in one request. The server validates the complete batch before writing and `Store.create_rag_documents()` inserts all document, chunk, and FTS rows in one SQLite transaction. A rejected file therefore rolls back the complete batch. While one batch is active, the browser rejects a second batch.
 4. The server normalizes the filename, checks the extension and UTF-8 size, strips null bytes, and rejects empty content.
 5. `chunk_text()` groups paragraphs into chunks targeting approximately 1,400 characters.
-6. `Store.create_rag_document()` stores document metadata, chunks, and matching FTS5 rows in one transaction.
+6. The single-file endpoint delegates to the same transaction-scoped batch insertion path.
 
 There is currently no global document-count ceiling. The 1,000-file value is the maximum size of one browser upload selection, not the number of passages sent to a model.
 
 #### Retrieval
 
-For a Nexus or Infra question, `fts_query()` extracts up to 12 meaningful query terms. SQLite FTS5 ranks matching chunks with BM25, and `Store.search_rag()` returns the configured number of best passages. The admin field **Max. passages** controls this per-question retrieval count and is bounded to 1–12. This smaller limit prevents a large knowledge base from flooding the model context.
+For a Nexus or Infra question, `fts_query()` extracts up to 12 meaningful query terms. SQLite FTS5 first ranks a wider candidate set with BM25. `Store.search_rag()` keeps passages whose score strength is at least 20% of the best match, then applies the configured result limit. The admin field **Max. passages** defaults to 6 and remains bounded to 1–12. Weak matches are omitted instead of padding every request to the configured maximum.
 
 Retrieved chunks are added to the system prompt with a stable marker such as `[KB:runbook.md#3]`. The assistant is instructed to use only relevant context and cite those markers. Source metadata is also stored with the assistant message so the UI can render the provenance.
+
+Every successful message request logs `rag_ms`, `provider_ms`, `total_ms`, selected chunk count, prompt character count, and provider token usage without logging the question or retrieved content. The API completion event also returns the non-sensitive timing summary, allowing latency to be separated into local retrieval and external model processing.
 
 ### Infra Snapshot and LIVE logic
 
@@ -220,10 +224,10 @@ SQLite connection context managers provide commit/rollback behavior. Multi-row o
 | Authentication | `/api/auth/register`, `/login`, `/logout`, `/me` | Rate limit and/or session |
 | Capabilities | `GET /api/capabilities` | Session |
 | Conversations | `/api/conversations`, `/api/conversations/{id}` | Session, owner, agent mode |
-| Messages | `POST /api/conversations/{id}/messages` | Session, owner, mode, agent policy, rate limits |
+| Messages | `POST /api/conversations/{id}/messages`, `/messages/stream` | Session, owner, mode, agent policy, rate limits |
 | Users | `/api/admin/users` | Administrator |
 | Settings and models | `/api/admin/settings`, `/api/admin/models` | Administrator |
-| RAG | `/api/admin/rag/documents` | Administrator |
+| RAG | `/api/admin/rag/documents`, `/api/admin/rag/documents/batch` | Administrator |
 | Infra status | `/api/admin/infra/status` | Administrator |
 | Synthetic schema | `/api/admin/data/schema` | Administrator |
 

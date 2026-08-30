@@ -20,15 +20,16 @@ The service has five principal boundaries:
 2. It confirms that the conversation belongs to the `general` workspace.
 3. If RAG is enabled, an FTS5 query selects a bounded number of relevant chunks.
 4. The system instructions, optional knowledge context, and recent messages are sent to the model provider.
-5. The user and assistant messages are committed in one SQLite transaction.
+5. Text deltas are streamed to the browser as NDJSON while the provider generates them.
+6. The user and complete assistant messages are committed in one SQLite transaction after successful completion.
 
 ### RAG ingestion
 
 Administrators can select or drag up to 1,000 files per batch. The browser validates a
-10 MiB per-file limit and a 50 MiB batch limit, then uploads up to four documents in
-parallel. Each document is independently validated and committed, so one rejected
-file does not roll back successful files from the same selection. The application
-does not impose a global document-count ceiling.
+10 MiB per-file limit and a 50 MiB batch limit, then sends one batch request. The API
+validates every document before `Store.create_rag_documents()` inserts all metadata,
+chunks, and FTS rows in one transaction. One invalid file rejects the complete batch.
+The application does not impose a global document-count ceiling.
 
 ### Infra assistant
 
@@ -74,6 +75,7 @@ Older databases are migrated automatically. If one legacy conversation contains 
 `OpenAIProvider` offers a narrow application-facing interface:
 
 - `reply()` for ordinary and Infra responses
+- `stream_reply()` for incremental ordinary and Infra responses
 - `generate_sql()` for schema-constrained SQL planning
 - `create_sql_report()` for result summarization
 

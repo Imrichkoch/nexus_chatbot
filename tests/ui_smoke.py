@@ -115,7 +115,7 @@ def run() -> None:
             "async () => (await fetch('/api/admin/settings')).json()"
         )
         assert saved_before_submit["model"] == original_model
-        assert saved_before_submit["rag_max_chunks"] == 4
+        assert saved_before_submit["rag_max_chunks"] == 6
         desktop.locator("#settings-dirty-save").click()
         desktop.locator("#settings-dirty-bar").wait_for(state="hidden")
         saved_after_submit = desktop.evaluate(

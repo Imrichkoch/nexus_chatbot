@@ -19,6 +19,9 @@ def test_user_can_create_conversation_and_receive_ai_reply(client, app):
     body = reply.json()
     assert body["assistant"]["content"] == "Testovacia odpoveď z Nexus AI."
     assert body["assistant"]["model"]
+    assert body["performance"]["provider_ms"] >= 0
+    assert body["performance"]["total_ms"] >= body["performance"]["provider_ms"]
+    assert body["performance"]["rag_chunks"] == 0
     assert app.state.fake_ai.calls[0]["messages"][-1]["content"].startswith("Vysvetli")
 
     detail = client.get(f"/api/conversations/{conversation_id}")
@@ -26,6 +29,39 @@ def test_user_can_create_conversation_and_receive_ai_reply(client, app):
         "user",
         "assistant",
     ]
+
+
+def test_message_stream_returns_deltas_then_persists_exchange(client, app):
+    assert register(client).status_code == 201
+    conversation_id = client.post(
+        "/api/conversations", json={"title": "Streaming"}
+    ).json()["id"]
+
+    def fake_stream_reply(**kwargs):
+        app.state.fake_ai.calls.append(kwargs)
+        yield {"type": "delta", "content": "Streaming "}
+        yield {"type": "delta", "content": "answer."}
+        yield {
+            "type": "completed",
+            "model": kwargs["model"],
+            "input_tokens": 12,
+            "output_tokens": 7,
+        }
+
+    app.state.fake_ai.stream_reply = fake_stream_reply
+    with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages/stream",
+        json={"content": "Stream this answer."},
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert [event["type"] for event in events] == ["delta", "delta", "done"]
+    assert events[-1]["assistant"]["content"] == "Streaming answer."
+    assert events[-1]["performance"]["provider_ms"] >= 0
+    detail = client.get(f"/api/conversations/{conversation_id}").json()
+    assert [message["role"] for message in detail["messages"]] == ["user", "assistant"]
 
 
 def test_users_cannot_access_each_others_conversations(client):

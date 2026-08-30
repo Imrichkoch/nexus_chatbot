@@ -3,7 +3,6 @@ const apiBase = `${basePath}/api`;
 const RAG_MAX_FILES_PER_BATCH = 1000;
 const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
-const RAG_UPLOAD_CONCURRENCY = 4;
 
 const TRANSLATIONS = {
   pageTitle: { en: "NexusChat / AI workspace", sk: "NexusChat / AI pracovný priestor" },
@@ -564,6 +563,40 @@ async function api(path, options = {}) {
   return body;
 }
 
+async function streamApi(path, options, onEvent) {
+  const response = await fetch(`${apiBase}${path}`, {
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept-Language": state.language,
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const error = new Error(body.detail || t("requestFailed"));
+    error.status = response.status;
+    throw error;
+  }
+  if (!response.body) throw new Error(t("requestFailed"));
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (line.trim()) onEvent(JSON.parse(line));
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer));
+}
+
 function toast(message, type = "success") {
   const node = document.createElement("div");
   node.className = `toast ${type === "error" ? "error" : ""}`;
@@ -1122,14 +1155,42 @@ async function sendMessage(content) {
     $("#messages").scrollTop = $("#messages").scrollHeight;
   }
   try {
-    const result = await api(`/conversations/${conversation.id}/messages`, {
+    let result = null;
+    let streamedContent = "";
+    let streamingArticle = null;
+    await streamApi(`/conversations/${conversation.id}/messages/stream`, {
       method: "POST",
       body: JSON.stringify({
         content: content.trim(),
         agent_mode: mode,
         infra_source: infraSource,
       }),
+    }, (event) => {
+      if (event.type === "error") throw new Error(event.detail || t("requestFailed"));
+      if (event.type === "done") {
+        result = event;
+        return;
+      }
+      if (event.type !== "delta" || !event.content) return;
+      streamedContent += event.content;
+      if (state.agentMode !== mode) return;
+      if (!streamingArticle) {
+        document.querySelector("#typing-message")?.remove();
+        streamingArticle = messageNode({
+          role: "assistant",
+          content: "",
+          agent_mode: mode,
+          created_at: new Date().toISOString(),
+          sources: [],
+        });
+        streamingArticle.id = "streaming-message";
+        streamingArticle.setAttribute("aria-live", "polite");
+        $("#messages").appendChild(streamingArticle);
+      }
+      streamingArticle.querySelector(".message__content").textContent = streamedContent;
+      $("#messages").scrollTop = $("#messages").scrollHeight;
     });
+    if (!result) throw new Error(t("requestFailed"));
     conversation.messages = conversation.messages.filter(
       (message) => message.id !== optimistic.id,
     );
@@ -1365,47 +1426,26 @@ async function uploadRagDocuments(fileList) {
 
   const drop = $("#rag-drop");
   const status = $("#rag-upload-status");
-  const queue = [...files];
-  const failures = [];
-  let completed = 0;
   state.ragUploading = true;
   drop.classList.add("uploading");
   status.textContent = t("uploading", { done: 0, total: files.length });
 
-  async function worker() {
-    while (queue.length) {
-      const file = queue.shift();
-      try {
-        await api("/admin/rag/documents", {
-          method: "POST",
-          body: JSON.stringify({ name: file.name, content: await file.text() }),
-        });
-      } catch (error) {
-        failures.push({ name: file.name, message: error.message });
-      } finally {
-        completed += 1;
-        status.textContent = t("uploading", { done: completed, total: files.length });
-      }
-    }
-  }
-
   try {
-    await Promise.all(
-      Array.from(
-        { length: Math.min(RAG_UPLOAD_CONCURRENCY, files.length) },
-        () => worker(),
-      ),
-    );
-    const succeeded = files.length - failures.length;
-    status.textContent = failures.length
-      ? t("uploadPartial", { success: succeeded, failed: failures.length })
-      : t("uploadDone", { count: succeeded });
-    if (failures.length) {
-      toast(`${failures[0].name}: ${failures[0].message}`, "error");
-    } else {
-      toast(t("filesAdded", { count: succeeded }));
+    const documents = [];
+    for (const [index, file] of files.entries()) {
+      documents.push({ name: file.name, content: await file.text() });
+      status.textContent = t("uploading", { done: index + 1, total: files.length });
     }
+    const created = await api("/admin/rag/documents/batch", {
+      method: "POST",
+      body: JSON.stringify({ documents }),
+    });
+    status.textContent = t("uploadDone", { count: created.documents.length });
+    toast(t("filesAdded", { count: created.documents.length }));
     renderDocuments((await api("/admin/rag/documents")).documents);
+  } catch (error) {
+    status.textContent = error.message;
+    toast(error.message, "error");
   } finally {
     state.ragUploading = false;
     $("#rag-file").value = "";

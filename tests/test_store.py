@@ -3,6 +3,23 @@ import sqlite3
 from nexus.store import Store
 
 
+def test_rag_search_discards_passages_far_below_the_best_score(tmp_path):
+    store = Store(str(tmp_path / "rag-relevance.sqlite3"))
+    store.create_rag_document(
+        "strong.md",
+        ("redis outage recovery redis service restoration " * 80).strip(),
+    )
+    store.create_rag_document(
+        "weak.md",
+        "Redis is mentioned once in an otherwise unrelated document about holidays.",
+    )
+
+    results = store.search_rag("redis outage recovery service restoration", 6)
+
+    assert results
+    assert {result["document"] for result in results} == {"strong.md"}
+
+
 def test_legacy_mixed_conversation_is_split_without_losing_messages(tmp_path):
     database_path = tmp_path / "legacy.sqlite3"
     with sqlite3.connect(database_path) as db:

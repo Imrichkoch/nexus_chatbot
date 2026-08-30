@@ -16,7 +16,7 @@ def test_spa_shell_is_served(client):
     assert 'id="admin-user-email"' not in response.text
     assert 'name="identifier"' in response.text
     assert "crypto.getRandomValues" in client.get("/assets/app.js").text
-    assert 'assets/app.js?v=20260816a' in response.text
+    assert 'assets/app.js?v=20260830a' in response.text
     assert 'assets/styles.css?v=20260810b' in response.text
     assert 'id="settings-dirty-bar"' in response.text
     assert 'id="settings-dirty-save"' in response.text
@@ -34,6 +34,14 @@ def test_spa_shell_is_served(client):
     assert "50 MB/batch" in client.get("/assets/app.js").text
     assert "max 1000 naraz" in response.text
     assert "50 MB/dávka" in response.text
+
+
+def test_frontend_uses_streaming_chat_and_batch_rag_upload(client):
+    script = client.get("/assets/app.js").text
+
+    assert "/messages/stream" in script
+    assert "/admin/rag/documents/batch" in script
+    assert "response.body.getReader()" in script
 
 
 def test_security_headers_and_host_validation(client):

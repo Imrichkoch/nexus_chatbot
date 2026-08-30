@@ -168,6 +168,44 @@ def test_admin_can_manage_rag_documents(client):
     assert client.get("/api/admin/rag/documents").json()["documents"] == []
 
 
+def test_admin_can_upload_rag_documents_as_one_batch(client):
+    assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
+
+    response = client.post(
+        "/api/admin/rag/documents/batch",
+        json={
+            "documents": [
+                {"name": "redis.md", "content": "Redis recovery procedure."},
+                {"name": "postgres.md", "content": "Postgres backup procedure."},
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    assert [item["name"] for item in response.json()["documents"]] == [
+        "redis.md",
+        "postgres.md",
+    ]
+    assert len(client.get("/api/admin/rag/documents").json()["documents"]) == 2
+
+
+def test_invalid_rag_batch_is_rejected_without_partial_writes(client):
+    assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
+
+    response = client.post(
+        "/api/admin/rag/documents/batch",
+        json={
+            "documents": [
+                {"name": "valid.md", "content": "Valid knowledge."},
+                {"name": "invalid.exe", "content": "Invalid knowledge."},
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    assert client.get("/api/admin/rag/documents").json()["documents"] == []
+
+
 def test_rag_rejects_unsupported_or_oversized_documents(client):
     assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
 

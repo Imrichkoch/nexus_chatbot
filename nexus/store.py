@@ -205,7 +205,7 @@ class Store:
                     "používateľa, jasne oddeľ fakty od odhadov a nevymýšľaj si zdroje."
                 ),
                 "rag_enabled": "0",
-                "rag_max_chunks": "4",
+                "rag_max_chunks": "6",
                 "infra_agent_enabled": "0",
                 "infra_agent_admin_only": "1",
                 "infra_live_enabled": "1",
@@ -660,34 +660,42 @@ class Store:
         return message
 
     def create_rag_document(self, name: str, content: str) -> dict[str, Any]:
-        chunks = chunk_text(content)
-        now = utc_now()
+        return self.create_rag_documents([(name, content)])[0]
+
+    def create_rag_documents(
+        self, documents: list[tuple[str, str]]
+    ) -> list[dict[str, Any]]:
+        """Insert a validated document batch in one SQLite transaction."""
+        prepared = [(name, content, chunk_text(content)) for name, content in documents]
+        created: list[dict[str, Any]] = []
         with self.connection() as db:
-            cursor = db.execute(
-                """
-                INSERT INTO rag_documents
-                    (name, character_count, chunk_count, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (name, len(content), len(chunks), now),
-            )
-            document_id = int(cursor.lastrowid)
-            for index, chunk in enumerate(chunks, start=1):
-                chunk_cursor = db.execute(
+            for name, content, chunks in prepared:
+                cursor = db.execute(
                     """
-                    INSERT INTO rag_chunks (document_id, chunk_index, content)
-                    VALUES (?, ?, ?)
+                    INSERT INTO rag_documents
+                        (name, character_count, chunk_count, created_at)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (document_id, index, chunk),
+                    (name, len(content), len(chunks), utc_now()),
                 )
-                db.execute(
-                    "INSERT INTO rag_chunks_fts(rowid, content) VALUES (?, ?)",
-                    (chunk_cursor.lastrowid, chunk),
-                )
-            row = db.execute(
-                "SELECT * FROM rag_documents WHERE id = ?", (document_id,)
-            ).fetchone()
-        return dict(row)
+                document_id = int(cursor.lastrowid)
+                for index, chunk in enumerate(chunks, start=1):
+                    chunk_cursor = db.execute(
+                        """
+                        INSERT INTO rag_chunks (document_id, chunk_index, content)
+                        VALUES (?, ?, ?)
+                        """,
+                        (document_id, index, chunk),
+                    )
+                    db.execute(
+                        "INSERT INTO rag_chunks_fts(rowid, content) VALUES (?, ?)",
+                        (chunk_cursor.lastrowid, chunk),
+                    )
+                row = db.execute(
+                    "SELECT * FROM rag_documents WHERE id = ?", (document_id,)
+                ).fetchone()
+                created.append(dict(row))
+        return created
 
     def list_rag_documents(self) -> list[dict[str, Any]]:
         with self.connection() as db:
@@ -731,9 +739,20 @@ class Store:
                 ORDER BY score
                 LIMIT ?
                 """,
-                (match, max(1, min(limit, 12))),
+                (match, max(4, min(limit, 12) * 4)),
             ).fetchall()
-        return [dict(row) for row in rows]
+        candidates = [dict(row) for row in rows]
+        if not candidates:
+            return []
+        requested = max(1, min(limit, 12))
+        best_strength = abs(float(candidates[0]["score"]))
+        if best_strength == 0:
+            return candidates[:requested]
+        return [
+            candidate
+            for candidate in candidates
+            if abs(float(candidate["score"])) >= best_strength * 0.20
+        ][:requested]
 
     def get_settings(self) -> dict[str, str]:
         with self.connection() as db:
