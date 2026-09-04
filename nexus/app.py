@@ -25,6 +25,7 @@ from nexus.infra import (
     infra_prompt,
     read_snapshot,
 )
+from nexus.ldap_auth import LDAPAuthenticationError, LDAPAuthenticator
 from nexus.models import OpenRouterModelCatalog
 from nexus.rag import validate_document
 from nexus.store import Store
@@ -83,6 +84,23 @@ class SettingsPayload(BaseModel):
     data_agent_enabled: bool = True
     data_agent_admin_only: bool = False
     data_model: str = Field(default="gpt-5.6-luna", min_length=3, max_length=80)
+
+
+class LDAPSettingsPayload(BaseModel):
+    enabled: bool = False
+    url: str = Field(default="", max_length=500)
+    start_tls: bool = False
+    verify_tls: bool = True
+    base_dn: str = Field(default="", max_length=1000)
+    bind_dn: str = Field(default="", max_length=1000)
+    bind_password: str = Field(default="", max_length=1000)
+    clear_bind_password: bool = False
+    user_filter: str = Field(
+        default="(uid={username})", min_length=3, max_length=1000
+    )
+    name_attribute: str = Field(default="displayName", min_length=1, max_length=100)
+    email_attribute: str = Field(default="mail", min_length=1, max_length=100)
+    auto_provision: bool = True
 
 
 class RagDocumentPayload(BaseModel):
@@ -169,6 +187,8 @@ def create_app(
     infra_snapshot_path: str | None = None,
     live_infra_collector: Any | None = None,
     synthetic_database_path: str | None = None,
+    ldap_authenticator: Any | None = None,
+    ldap_secret_path: str | None = None,
     secure_cookies: bool | None = None,
 ) -> FastAPI:
     app = FastAPI(
@@ -206,6 +226,13 @@ def create_app(
     )
     app.state.data_agent = DataReportAgent(
         app.state.synthetic_database, app.state.ai_provider
+    )
+    app.state.ldap_authenticator = ldap_authenticator or LDAPAuthenticator(
+        ldap_secret_path
+        or os.getenv(
+            "NEXUS_LDAP_SECRET_PATH",
+            "/opt/nexuschat/data/ldap-bind-password",
+        )
     )
     app.state.secure_cookies = (
         secure_cookies
@@ -315,10 +342,51 @@ def create_app(
         if not identifier:
             raise HTTPException(status_code=422, detail="Zadaj meno alebo e-mail.")
         user_record = app.state.store.get_user_by_identifier(identifier)
-        if not user_record or not app.state.store.verify_password(
-            user_record, payload.password
-        ):
-            raise HTTPException(status_code=401, detail="Nesprávne meno, e-mail alebo heslo.")
+        is_local = user_record and user_record.get("auth_source", "local") == "local"
+        authenticated_locally = bool(
+            is_local and app.state.store.verify_password(user_record, payload.password)
+        )
+        if not authenticated_locally:
+            if is_local:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Nesprávne meno, e-mail alebo heslo.",
+                )
+            settings = app.state.store.get_settings()
+            if settings.get("ldap_enabled") != "1":
+                raise HTTPException(
+                    status_code=401,
+                    detail="Nesprávne meno, e-mail alebo heslo.",
+                )
+            try:
+                identity = app.state.ldap_authenticator.authenticate(
+                    settings, identifier, payload.password
+                )
+            except LDAPAuthenticationError:
+                LOGGER.warning("LDAP authentication backend is unavailable")
+                identity = None
+            if not identity:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Nesprávne meno, e-mail alebo heslo.",
+                )
+            if not user_record and settings.get("ldap_auto_provision", "1") != "1":
+                raise HTTPException(
+                    status_code=403,
+                    detail="LDAP účet nie je lokálne povolený.",
+                )
+            try:
+                user_record = app.state.store.upsert_ldap_user(
+                    identifier=identity["username"],
+                    name=identity["name"],
+                    email=identity.get("email"),
+                    directory_dn=identity["dn"],
+                )
+            except sqlite3.IntegrityError:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Nesprávne meno, e-mail alebo heslo.",
+                )
         if not user_record["is_active"]:
             raise HTTPException(status_code=403, detail="Účet je deaktivovaný.")
         token = app.state.store.create_session(user_record["id"])
@@ -1008,6 +1076,100 @@ def create_app(
             "data_model": settings["data_model"],
             "api_configured": bool(os.getenv("OPENAI_API_KEY")),
         }
+
+    def ldap_settings_response() -> dict[str, Any]:
+        settings = app.state.store.get_settings()
+        return {
+            "enabled": settings.get("ldap_enabled", "0") == "1",
+            "url": settings.get("ldap_url", ""),
+            "start_tls": settings.get("ldap_start_tls", "0") == "1",
+            "verify_tls": settings.get("ldap_verify_tls", "1") == "1",
+            "base_dn": settings.get("ldap_base_dn", ""),
+            "bind_dn": settings.get("ldap_bind_dn", ""),
+            "bind_password_configured": (
+                app.state.ldap_authenticator.has_bind_password()
+            ),
+            "user_filter": settings.get("ldap_user_filter", "(uid={username})"),
+            "name_attribute": settings.get("ldap_name_attribute", "displayName"),
+            "email_attribute": settings.get("ldap_email_attribute", "mail"),
+            "auto_provision": settings.get("ldap_auto_provision", "1") == "1",
+        }
+
+    def validate_ldap_payload(payload: LDAPSettingsPayload) -> None:
+        if payload.url and not re.match(
+            r"^ldaps?://[^\s/]+(?::\d+)?/?$", payload.url
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="LDAP URL musí používať ldap:// alebo ldaps://.",
+            )
+        if payload.enabled and (not payload.url or not payload.base_dn.strip()):
+            raise HTTPException(
+                status_code=422,
+                detail="Pre zapnutie LDAP vyplň URL a Base DN.",
+            )
+        if payload.start_tls and payload.url.startswith("ldaps://"):
+            raise HTTPException(
+                status_code=422,
+                detail="StartTLS sa používa iba s ldap://.",
+            )
+        if payload.user_filter.count("{username}") != 1:
+            raise HTTPException(
+                status_code=422,
+                detail="LDAP filter musí obsahovať práve jednu značku {username}.",
+            )
+        attribute_pattern = r"^[a-zA-Z][a-zA-Z0-9;-]*$"
+        if not re.match(attribute_pattern, payload.name_attribute) or not re.match(
+            attribute_pattern, payload.email_attribute
+        ):
+            raise HTTPException(status_code=422, detail="Neplatný LDAP atribút.")
+
+    @app.get("/api/admin/ldap")
+    def admin_ldap_settings(user: dict[str, Any] = Depends(admin_user)):
+        return ldap_settings_response()
+
+    @app.put("/api/admin/ldap")
+    def admin_update_ldap_settings(
+        payload: LDAPSettingsPayload,
+        actor: dict[str, Any] = Depends(admin_user),
+    ):
+        validate_ldap_payload(payload)
+        if payload.clear_bind_password:
+            app.state.ldap_authenticator.clear_bind_password()
+        elif payload.bind_password:
+            app.state.ldap_authenticator.set_bind_password(payload.bind_password)
+        app.state.store.update_settings(
+            {
+                "ldap_enabled": "1" if payload.enabled else "0",
+                "ldap_url": payload.url.strip(),
+                "ldap_start_tls": "1" if payload.start_tls else "0",
+                "ldap_verify_tls": "1" if payload.verify_tls else "0",
+                "ldap_base_dn": payload.base_dn.strip(),
+                "ldap_bind_dn": payload.bind_dn.strip(),
+                "ldap_user_filter": payload.user_filter.strip(),
+                "ldap_name_attribute": payload.name_attribute.strip(),
+                "ldap_email_attribute": payload.email_attribute.strip(),
+                "ldap_auto_provision": "1" if payload.auto_provision else "0",
+            }
+        )
+        app.state.store.audit(actor["id"], "ldap.settings.update", "ldap")
+        return ldap_settings_response()
+
+    @app.post("/api/admin/ldap/test")
+    def admin_test_ldap(actor: dict[str, Any] = Depends(admin_user)):
+        settings = app.state.store.get_settings()
+        if not settings.get("ldap_url") or not settings.get("ldap_base_dn"):
+            raise HTTPException(
+                status_code=422,
+                detail="Najprv ulož LDAP URL a Base DN.",
+            )
+        try:
+            result = app.state.ldap_authenticator.test_connection(settings)
+        except LDAPAuthenticationError:
+            LOGGER.warning("LDAP connection test failed")
+            raise HTTPException(status_code=502, detail="LDAP spojenie zlyhalo.")
+        app.state.store.audit(actor["id"], "ldap.test", "ldap")
+        return {"ok": True, **result}
 
     @app.get("/api/admin/data/schema")
     def admin_data_schema(user: dict[str, Any] = Depends(admin_user)):

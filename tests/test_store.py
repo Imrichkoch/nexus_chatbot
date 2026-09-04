@@ -3,6 +3,22 @@ import sqlite3
 from nexus.store import Store
 
 
+def test_store_provisions_ldap_users_without_granting_admin(tmp_path):
+    store = Store(str(tmp_path / "ldap-users.sqlite3"))
+
+    created = store.upsert_ldap_user(
+        identifier="directory.user",
+        name="Directory User",
+        email="directory.user@example.test",
+        directory_dn="uid=directory.user,ou=people,dc=example,dc=test",
+    )
+
+    assert created["auth_source"] == "ldap"
+    assert created["role"] == "user"
+    assert store.verify_password(created, "anything") is False
+    assert store.get_user(created["id"])["auth_source"] == "ldap"
+
+
 def test_rag_search_discards_passages_far_below_the_best_score(tmp_path):
     store = Store(str(tmp_path / "rag-relevance.sqlite3"))
     store.create_rag_document(

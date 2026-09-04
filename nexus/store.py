@@ -31,6 +31,9 @@ def public_user(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         "is_active": bool(row["is_active"]),
         "created_at": row["created_at"],
         "last_login_at": row["last_login_at"],
+        "auth_source": (
+            row["auth_source"] if "auth_source" in row.keys() else "local"
+        ),
     }
 
 
@@ -82,7 +85,10 @@ class Store:
                         CHECK (role IN ('user', 'admin')),
                     is_active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
-                    last_login_at TEXT
+                    last_login_at TEXT,
+                    auth_source TEXT NOT NULL DEFAULT 'local'
+                        CHECK (auth_source IN ('local', 'ldap')),
+                    directory_dn TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -167,9 +173,19 @@ class Store:
             }
             if "username" not in user_columns:
                 db.execute("ALTER TABLE users ADD COLUMN username TEXT COLLATE NOCASE")
+            if "auth_source" not in user_columns:
+                db.execute(
+                    "ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'"
+                )
+            if "directory_dn" not in user_columns:
+                db.execute("ALTER TABLE users ADD COLUMN directory_dn TEXT")
             db.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase "
                 "ON users(username COLLATE NOCASE) WHERE username IS NOT NULL"
+            )
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_directory_dn_nocase "
+                "ON users(directory_dn COLLATE NOCASE) WHERE directory_dn IS NOT NULL"
             )
             message_columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()
@@ -219,6 +235,16 @@ class Store:
                     "NEXUS_DATA_MODEL",
                     os.getenv("NEXUS_DEFAULT_MODEL", "gpt-5.6-luna"),
                 ),
+                "ldap_enabled": "0",
+                "ldap_url": "",
+                "ldap_start_tls": "0",
+                "ldap_verify_tls": "1",
+                "ldap_base_dn": "",
+                "ldap_bind_dn": "",
+                "ldap_user_filter": "(uid={username})",
+                "ldap_name_attribute": "displayName",
+                "ldap_email_attribute": "mail",
+                "ldap_auto_provision": "1",
             }
             for key, value in defaults.items():
                 db.execute(
@@ -387,9 +413,86 @@ class Store:
         return public_user(row) if row else None
 
     def verify_password(self, user: dict[str, Any], password: str) -> bool:
+        if user.get("auth_source", "local") != "local":
+            return False
         return bcrypt.checkpw(
             password.encode("utf-8"), user["password_hash"].encode("ascii")
         )
+
+    def upsert_ldap_user(
+        self,
+        *,
+        identifier: str,
+        name: str,
+        email: str | None,
+        directory_dn: str,
+    ) -> dict[str, Any]:
+        clean_identifier = identifier.strip()
+        clean_name = name.strip() or clean_identifier
+        clean_dn = directory_dn.strip()
+        synthetic_email = (
+            f"ldap-{hashlib.sha256(clean_dn.encode('utf-8')).hexdigest()[:24]}"
+            "@nexus.invalid"
+        )
+        with self.connection() as db:
+            row = db.execute(
+                "SELECT * FROM users WHERE directory_dn = ? COLLATE NOCASE",
+                (clean_dn,),
+            ).fetchone()
+            if row is None:
+                row = db.execute(
+                    "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+                    (clean_identifier,),
+                ).fetchone()
+            if row is not None and row["auth_source"] != "ldap":
+                raise sqlite3.IntegrityError("LDAP identifier belongs to a local user")
+
+            clean_email = (email or "").strip().lower()
+            if clean_email:
+                collision = db.execute(
+                    "SELECT id FROM users WHERE email = ? COLLATE NOCASE",
+                    (clean_email,),
+                ).fetchone()
+                if collision and (row is None or collision["id"] != row["id"]):
+                    clean_email = synthetic_email
+            else:
+                clean_email = synthetic_email
+
+            if row is None:
+                unusable_hash = bcrypt.hashpw(
+                    secrets.token_bytes(32), bcrypt.gensalt(rounds=12)
+                ).decode("ascii")
+                cursor = db.execute(
+                    """
+                    INSERT INTO users
+                        (name, username, email, password_hash, role, is_active,
+                         created_at, auth_source, directory_dn)
+                    VALUES (?, ?, ?, ?, 'user', 1, ?, 'ldap', ?)
+                    """,
+                    (
+                        clean_name,
+                        clean_identifier,
+                        clean_email,
+                        unusable_hash,
+                        utc_now(),
+                        clean_dn,
+                    ),
+                )
+                user_id = cursor.lastrowid
+            else:
+                user_id = row["id"]
+                db.execute(
+                    """
+                    UPDATE users
+                    SET name = ?, email = ?, role = 'user', directory_dn = ?
+                    WHERE id = ?
+                    """,
+                    (clean_name, clean_email, clean_dn, user_id),
+                )
+            result = db.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return dict(result)
 
     def create_session(self, user_id: int, days: int = 7) -> str:
         token = secrets.token_urlsafe(40)

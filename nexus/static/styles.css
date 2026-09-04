@@ -1171,6 +1171,14 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
 .safety-boundary span { color: var(--acid); font-size: 8px; letter-spacing: .12em; }
 .safety-boundary small { margin-top: 6px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .admin-card--data { grid-column: 1 / -1; }
+.admin-card--ldap { grid-column: 1 / -1; }
+.ldap-settings-form { margin-top: 18px; display: grid; gap: 18px; }
+.ldap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ldap-grid label > span { display: block; margin-bottom: 7px; }
+.ldap-span-2 { grid-column: 1 / -1; }
+.ldap-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; }
+.ldap-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.ldap-actions .button { min-width: 180px; }
 .data-agent-layout {
   margin-top: 18px;
   display: grid;
@@ -1306,7 +1314,10 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
   .admin-password-control input { grid-column: 1 / -1; }
   .admin-password-control .field-action { border-top: 0; }
   .admin-password-control .field-action:first-of-type { border-left: 1px solid var(--line-strong); }
-  .data-agent-layout, .schema-table-list { grid-template-columns: 1fr; }
+  .data-agent-layout, .schema-table-list, .ldap-grid, .ldap-options { grid-template-columns: 1fr; }
+  .ldap-span-2 { grid-column: auto; }
+  .ldap-actions { align-items: stretch; flex-direction: column-reverse; }
+  .ldap-actions .button { width: 100%; }
   .agent-option { min-width: 0; flex: 1; }
   .agent-option small { display: none; }
   .infra-source-switcher {

@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/styles.css?v=20260810b">
-  <script src="assets/app.js?v=20260830a" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260904a">
+  <script src="assets/app.js?v=20260904a" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
@@ -392,6 +392,40 @@
                 </div>
               </div>
             </div>
+          </article>
+
+          <article class="admin-card admin-card--ldap">
+            <div class="card-heading">
+              <div><span class="section-index">A6</span><h3>LDAP integrácia</h3></div>
+              <label class="switch"><input id="ldap-enabled" form="ldap-settings-form" type="checkbox" aria-label="Zapnúť alebo vypnúť LDAP prihlásenie"><span></span></label>
+            </div>
+            <p class="card-copy">Pripojenie firemného adresára pre používateľské prihlásenie. Lokálne účty zostávajú funkčné a LDAP nikdy automaticky nevytvorí administrátora.</p>
+            <div id="ldap-status" class="infra-status"><span></span><strong>LDAP VYPNUTÉ</strong></div>
+            <form id="ldap-settings-form" class="ldap-settings-form">
+              <div class="ldap-grid">
+                <label class="ldap-span-2"><span>LDAP URL</span><input id="ldap-url" type="url" placeholder="ldaps://directory.example.com:636" autocomplete="off" spellcheck="false"></label>
+                <label class="ldap-span-2"><span>Base DN</span><input id="ldap-base-dn" placeholder="ou=people,dc=example,dc=com" autocomplete="off" spellcheck="false"></label>
+                <label><span>Bind DN</span><input id="ldap-bind-dn" placeholder="cn=nexus,ou=services,dc=example,dc=com" autocomplete="off" spellcheck="false"></label>
+                <label><span>Bind heslo</span><input id="ldap-bind-password" type="password" placeholder="Prázdne pole ponechá uložené heslo" autocomplete="new-password"></label>
+                <label class="ldap-span-2"><span>Filter používateľa</span><input id="ldap-user-filter" value="(uid={username})" autocomplete="off" spellcheck="false" required></label>
+                <label><span>Atribút mena</span><input id="ldap-name-attribute" value="displayName" autocomplete="off" spellcheck="false" required></label>
+                <label><span>Atribút e-mailu</span><input id="ldap-email-attribute" value="mail" autocomplete="off" spellcheck="false" required></label>
+              </div>
+              <div class="ldap-options">
+                <label class="check-row"><input id="ldap-start-tls" type="checkbox"><span>StartTLS pre ldap://</span></label>
+                <label class="check-row"><input id="ldap-verify-tls" type="checkbox" checked><span>Overovať TLS certifikát</span></label>
+                <label class="check-row"><input id="ldap-auto-provision" type="checkbox" checked><span>Automaticky vytvoriť USER účet po prvom prihlásení</span></label>
+                <label class="check-row"><input id="ldap-clear-password" type="checkbox"><span>Odstrániť uložené bind heslo</span></label>
+              </div>
+              <div class="safety-boundary">
+                <span>SECURE DIRECTORY BOUNDARY</span>
+                <small>Bind heslo sa ukladá mimo databázy s oprávnením iba pre službu a nikdy sa neposiela späť do prehliadača.</small>
+              </div>
+              <div class="ldap-actions">
+                <button id="ldap-test" class="button" type="button">Otestovať spojenie</button>
+                <button class="button button--primary" type="submit">Uložiť LDAP</button>
+              </div>
+            </form>
           </article>
         </div>
         <div id="settings-dirty-bar" class="settings-dirty-bar hidden" role="status" aria-live="polite">

@@ -17,7 +17,7 @@ Live deployment: [raizenko.cloud/nexus](https://raizenko.cloud/nexus/)
 - Admin-only LIVE Infra checks with a fixed read-only collector and successful-read audit logging
 - Synthetic commerce database with natural-language-to-SQL reporting
 - SQLite authorizer, query-only mode, time limit, row limit, and function denylist
-- Admin control plane for creating username/password user or admin accounts, managing models, RAG, and agent access policies
+- Admin control plane for creating username/password user or admin accounts, managing models, RAG, agent access policies, and LDAP directory sign-in
 - Responsive desktop/mobile interface with accessible navigation and status controls
 - Built-in English/Slovak interface switch with browser-local persistence
 - Atomic user/assistant turn persistence and automatic legacy chat migration
@@ -84,6 +84,14 @@ sequenceDiagram
 Application account passwords are stored only as bcrypt hashes. A successful login creates a cryptographically random token with a fixed seven-day expiry, but only its SHA-256 hash is written to SQLite. The browser receives the raw token in an HTTP-only, `SameSite=Lax` cookie. The reference production configuration enables the configurable `Secure` flag; local HTTP development requires disabling it. Logout deletes the hashed session and removes the cookie. Role and activation checks use the current user row on every request, so a role change applies immediately and deactivation makes existing sessions unusable.
 
 Self-registration uses name, e-mail, and password validation. Accounts created from the admin panel use a unique login name and do not require e-mail. Both identity forms are resolved by the same login endpoint. Authentication and registration attempts are rate-limited before password work or account creation occurs.
+
+### LDAP directory authentication
+
+LDAP is disabled by default and is configured in the final **A6 / LDAP integration** card in the administrator control plane. The administrator can configure an `ldap://` or `ldaps://` endpoint, optional StartTLS, certificate verification, Base DN, service bind DN, user search filter, and name/e-mail attribute mapping. The test action saves the visible configuration and then verifies the service bind and Base DN lookup.
+
+The bind password is deliberately separate from normal runtime settings: it is stored in `NEXUS_LDAP_SECRET_PATH`, atomically replaced, restricted to mode `0600`, and never returned by the API. A blank password field retains the current secret; the explicit removal checkbox deletes it. Application logs use generic LDAP failure messages and do not include credentials.
+
+Login keeps local and directory identities separate. An existing local username is always authenticated locally and cannot be taken over by LDAP. After a successful directory bind, auto-provisioning creates or updates a local shadow record with `auth_source=ldap`; it always has the `user` role. LDAP can never provision or promote an administrator. The shadow record allows the existing session, deactivation, audit, and ownership logic to remain authoritative. Disabling that record blocks the LDAP identity, while disabling LDAP leaves all local accounts working.
 
 ### Conversation and workspace isolation
 
@@ -227,6 +235,7 @@ SQLite connection context managers provide commit/rollback behavior. Multi-row o
 | Messages | `POST /api/conversations/{id}/messages`, `/messages/stream` | Session, owner, mode, agent policy, rate limits |
 | Users | `/api/admin/users` | Administrator |
 | Settings and models | `/api/admin/settings`, `/api/admin/models` | Administrator |
+| LDAP integration | `/api/admin/ldap`, `/api/admin/ldap/test` | Administrator |
 | RAG | `/api/admin/rag/documents`, `/api/admin/rag/documents/batch` | Administrator |
 | Infra status | `/api/admin/infra/status` | Administrator |
 | Synthetic schema | `/api/admin/data/schema` | Administrator |
@@ -314,12 +323,13 @@ The synthetic reporting database is created and seeded automatically. Infra snap
 | `NEXUS_DATABASE` | Main application SQLite database | `/opt/nexuschat/data/nexus.sqlite3` |
 | `NEXUS_SYNTHETIC_DATABASE` | Isolated synthetic report database | `/opt/nexuschat/data/synthetic-business.sqlite3` |
 | `NEXUS_INFRA_SNAPSHOT` | Sanitized snapshot JSON path | `/opt/nexuschat/data/infra-snapshot.json` |
+| `NEXUS_LDAP_SECRET_PATH` | LDAP service-bind password file | `/opt/nexuschat/data/ldap-bind-password` |
 | `NEXUS_DEFAULT_MODEL` | General assistant model | `gpt-5.6-luna` if unset; `.env.example` selects Terra |
 | `NEXUS_INFRA_MODEL` | Infra assistant model | general model |
 | `NEXUS_DATA_MODEL` | SQL/reporting model | general model |
 | `NEXUS_SECURE_COOKIES` | Restrict session cookies to HTTPS | `1` |
 
-Runtime model names, system instructions, RAG limits, and agent access policies are managed in the admin control plane and persisted in SQLite.
+Runtime model names, system instructions, RAG limits, agent access policies, and non-secret LDAP settings are managed in the admin control plane and persisted in SQLite. The LDAP bind password is stored only in the separate secret file.
 
 ## Tests
 
@@ -346,6 +356,7 @@ nexus/
   rag.py          validation, chunking, and FTS5 search helpers
   infra.py        snapshot parsing and bounded LIVE collection
   data_agent.py   synthetic database and SQL sandbox
+  ldap_auth.py    TLS-aware LDAP search, bind, and secret-file handling
   static/         responsive single-page frontend
 tests/            API, persistence, security, and Playwright tests
 deploy/           sanitized systemd and nginx examples

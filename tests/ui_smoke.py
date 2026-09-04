@@ -240,6 +240,22 @@ def run() -> None:
             path=str(OUTPUT_DIR / "nexus-data-agent-desktop.png"),
             full_page=False,
         )
+        desktop.locator(".admin-card--ldap").scroll_into_view_if_needed()
+        assert desktop.locator("#ldap-user-filter").input_value() == "(uid={username})"
+        assert desktop.locator("#ldap-verify-tls").is_checked()
+        assert desktop.locator("#ldap-enabled").is_checked() is False
+        assert desktop.locator(".admin-card--ldap").evaluate(
+            "element => element.compareDocumentPosition(document.querySelector('.admin-card--data')) & Node.DOCUMENT_POSITION_PRECEDING"
+        )
+        desktop.locator("#ldap-settings-form button[type=submit]").click()
+        desktop.get_by_text("LDAP configuration saved.", exact=True).wait_for(
+            state="visible"
+        )
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-ldap-desktop.png"),
+            full_page=False,
+        )
+        desktop.locator(".toast").last.wait_for(state="hidden")
 
         desktop.set_viewport_size({"width": 390, "height": 844})
         desktop.evaluate("document.querySelector('#admin-view').scrollTop = 0")
@@ -378,6 +394,16 @@ def run() -> None:
         desktop.locator(".admin-card--data").scroll_into_view_if_needed()
         desktop.screenshot(
             path=str(OUTPUT_DIR / "nexus-data-agent-mobile.png"),
+            full_page=False,
+        )
+        desktop.locator(".admin-card--ldap").scroll_into_view_if_needed()
+        ldap_mobile_layout = desktop.locator(".admin-card--ldap").evaluate(
+            "element => ({left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, viewport: innerWidth})"
+        )
+        assert ldap_mobile_layout["left"] >= 0, ldap_mobile_layout
+        assert ldap_mobile_layout["right"] <= ldap_mobile_layout["viewport"] + 2, ldap_mobile_layout
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-ldap-mobile.png"),
             full_page=False,
         )
         current_data_model = desktop.locator("#data-model").input_value()

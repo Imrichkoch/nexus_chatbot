@@ -97,6 +97,25 @@ const TRANSLATIONS = {
   exampleSales: { en: "“Compare revenue by country and segment.”", sk: "„Porovnaj tržby podľa krajín a segmentov.“" },
   exampleMargin: { en: "“Which products have the highest margin?”", sk: "„Ktoré produkty majú najvyššiu maržu?“" },
   exampleSla: { en: "“Create an SLA report for support tickets.”", sk: "„Sprav SLA report support ticketov.“" },
+  ldapIntegration: { en: "LDAP integration", sk: "LDAP integrácia" },
+  ldapToggle: { en: "Enable or disable LDAP sign-in", sk: "Zapnúť alebo vypnúť LDAP prihlásenie" },
+  ldapCopy: { en: "Connect a company directory for user sign-in. Local accounts remain available and LDAP never creates an administrator automatically.", sk: "Pripojenie firemného adresára pre používateľské prihlásenie. Lokálne účty zostávajú funkčné a LDAP nikdy automaticky nevytvorí administrátora." },
+  bindPassword: { en: "Bind password", sk: "Bind heslo" },
+  bindPasswordPlaceholder: { en: "Leave blank to keep the saved password", sk: "Prázdne pole ponechá uložené heslo" },
+  userFilter: { en: "User filter", sk: "Filter používateľa" },
+  nameAttribute: { en: "Name attribute", sk: "Atribút mena" },
+  emailAttribute: { en: "E-mail attribute", sk: "Atribút e-mailu" },
+  verifyTls: { en: "Verify TLS certificate", sk: "Overovať TLS certifikát" },
+  autoProvision: { en: "Automatically create a USER account after first sign-in", sk: "Automaticky vytvoriť USER účet po prvom prihlásení" },
+  clearBindPassword: { en: "Remove saved bind password", sk: "Odstrániť uložené bind heslo" },
+  ldapBoundary: { en: "The bind password is stored outside the database with service-only permissions and is never sent back to the browser.", sk: "Bind heslo sa ukladá mimo databázy s oprávnením iba pre službu a nikdy sa neposiela späť do prehliadača." },
+  testConnection: { en: "Test connection", sk: "Otestovať spojenie" },
+  saveLdap: { en: "Save LDAP", sk: "Uložiť LDAP" },
+  ldapDisabled: { en: "LDAP DISABLED", sk: "LDAP VYPNUTÉ" },
+  ldapReady: { en: "LDAP CONFIGURED", sk: "LDAP NAKONFIGUROVANÉ" },
+  ldapSaved: { en: "LDAP configuration saved.", sk: "LDAP konfigurácia bola uložená." },
+  ldapTesting: { en: "Testing…", sk: "Testujem…" },
+  ldapConnected: { en: "LDAP connection is working.", sk: "LDAP spojenie funguje." },
   unavailableTime: { en: "unavailable time", sk: "nedostupný čas" },
   requestFailed: { en: "The request could not be completed.", sk: "Požiadavku sa nepodarilo dokončiť." },
   checking: { en: "Checking…", sk: "Overujem…" },
@@ -1264,13 +1283,14 @@ async function loadAdmin() {
   if (state.user?.role !== "admin") return;
   $("#admin-view").setAttribute("aria-busy", "true");
   try {
-    const [overview, users, settings, rag, infra, dataSchema] = await Promise.all([
+    const [overview, users, settings, rag, infra, dataSchema, ldap] = await Promise.all([
       api("/admin/overview"),
       api("/admin/users"),
       api("/admin/settings"),
       api("/admin/rag/documents"),
       api("/admin/infra/status"),
       api("/admin/data/schema"),
+      api("/admin/ldap"),
     ]);
     $("#metric-users").textContent = overview.users_total;
     $("#metric-active").textContent = overview.users_active;
@@ -1297,6 +1317,7 @@ async function loadAdmin() {
     renderDocuments(rag.documents);
     renderInfraStatus(infra);
     renderDataSchema(dataSchema.schema);
+    renderLdapSettings(ldap);
     loadModelCatalog();
   } catch (error) {
     toast(error.message, "error");
@@ -1450,6 +1471,82 @@ async function uploadRagDocuments(fileList) {
     state.ragUploading = false;
     $("#rag-file").value = "";
     drop.classList.remove("uploading", "dragging");
+  }
+}
+
+function renderLdapSettings(settings) {
+  $("#ldap-enabled").checked = settings.enabled;
+  $("#ldap-url").value = settings.url;
+  $("#ldap-start-tls").checked = settings.start_tls;
+  $("#ldap-verify-tls").checked = settings.verify_tls;
+  $("#ldap-base-dn").value = settings.base_dn;
+  $("#ldap-bind-dn").value = settings.bind_dn;
+  $("#ldap-bind-password").value = "";
+  $("#ldap-bind-password").placeholder = settings.bind_password_configured
+    ? t("bindPasswordPlaceholder")
+    : t("bindPassword");
+  $("#ldap-user-filter").value = settings.user_filter;
+  $("#ldap-name-attribute").value = settings.name_attribute;
+  $("#ldap-email-attribute").value = settings.email_attribute;
+  $("#ldap-auto-provision").checked = settings.auto_provision;
+  $("#ldap-clear-password").checked = false;
+  const status = $("#ldap-status");
+  status.classList.toggle("online", settings.enabled);
+  status.querySelector("strong").textContent = t(
+    settings.enabled ? "ldapReady" : "ldapDisabled",
+  );
+}
+
+function ldapSettingsPayload() {
+  return {
+    enabled: $("#ldap-enabled").checked,
+    url: $("#ldap-url").value.trim(),
+    start_tls: $("#ldap-start-tls").checked,
+    verify_tls: $("#ldap-verify-tls").checked,
+    base_dn: $("#ldap-base-dn").value.trim(),
+    bind_dn: $("#ldap-bind-dn").value.trim(),
+    bind_password: $("#ldap-bind-password").value,
+    clear_bind_password: $("#ldap-clear-password").checked,
+    user_filter: $("#ldap-user-filter").value.trim(),
+    name_attribute: $("#ldap-name-attribute").value.trim(),
+    email_attribute: $("#ldap-email-attribute").value.trim(),
+    auto_provision: $("#ldap-auto-provision").checked,
+  };
+}
+
+async function saveLdapSettings(form, quiet = false) {
+  const buttons = form.querySelectorAll("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    const settings = await api("/admin/ldap", {
+      method: "PUT",
+      body: JSON.stringify(ldapSettingsPayload()),
+    });
+    renderLdapSettings(settings);
+    if (!quiet) toast(t("ldapSaved"));
+    return true;
+  } catch (error) {
+    toast(error.message, "error");
+    return false;
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
+
+async function testLdapConnection() {
+  const button = $("#ldap-test");
+  const original = button.textContent;
+  if (!(await saveLdapSettings($("#ldap-settings-form"), true))) return;
+  button.disabled = true;
+  button.textContent = t("ldapTesting");
+  try {
+    await api("/admin/ldap/test", { method: "POST" });
+    toast(t("ldapConnected"));
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
   }
 }
 
@@ -1787,6 +1884,11 @@ function bindEvents() {
     event.preventDefault();
     saveSettings(event.currentTarget);
   });
+  $("#ldap-settings-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveLdapSettings(event.currentTarget);
+  });
+  $("#ldap-test").addEventListener("click", testLdapConnection);
   $("#settings-dirty-discard").addEventListener("click", discardSettings);
   $("#admin-user-create-form").addEventListener("submit", (event) => {
     event.preventDefault();
