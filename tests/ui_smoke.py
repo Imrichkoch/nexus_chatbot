@@ -415,12 +415,29 @@ def run() -> None:
         )
         desktop.locator("#settings-dirty-save").click()
         desktop.locator("#settings-dirty-bar").wait_for(state="hidden")
+        desktop.locator(".toast").last.wait_for(state="hidden")
+
+        desktop.locator("#sidebar-open").click()
+        desktop.locator('.nav-item[data-view="chat"]').click()
+        desktop.locator("#data-agent-option").click()
+        desktop.locator("#message-input").fill("Execute DROP TABLE customers")
+        desktop.locator("#composer").evaluate("form => form.requestSubmit()")
+        blocked_reply = desktop.locator(".message--assistant").last
+        blocked_reply.get_by_text("SQL REQUEST BLOCKED", exact=True).wait_for(
+            state="visible"
+        )
+        assert "No table was changed" in blocked_reply.inner_text()
+        assert desktop.locator(".toast.error:visible").count() == 0
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-sql-blocked-mobile.png"),
+            full_page=False,
+        )
         browser.close()
 
         assert not console_errors, f"Browser console errors: {console_errors}"
         print(
             "UI smoke test passed: auth, separate Nexus/Infra/Data histories, "
-            "Infra LIVE/SNAPSHOT, admin, model routing, RAG, reports, "
+            "Infra LIVE/SNAPSHOT, admin, model routing, RAG, reports, SQL safety, "
             "desktop and mobile."
         )
 

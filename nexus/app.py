@@ -18,7 +18,12 @@ from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from nexus.ai import AIUnavailable, OpenAIProvider
-from nexus.data_agent import DataReportAgent, QueryRejected, SyntheticDatabase
+from nexus.data_agent import (
+    DataReportAgent,
+    QueryRejected,
+    SyntheticDatabase,
+    destructive_sql_operation,
+)
 from nexus.infra import (
     InfraSnapshotError,
     collect_infra_state,
@@ -612,13 +617,47 @@ def create_app(
         provider_started = time.monotonic()
         try:
             if payload.agent_mode == "data":
-                result = app.state.data_agent.answer(
-                    question=content,
-                    user_id=user["id"],
-                    model=settings.get("data_model", settings["model"]),
-                    admin_system_prompt=system_prompt,
-                )
-                rag_sources = [result["source"]]
+                blocked_operation = destructive_sql_operation(content)
+                if blocked_operation:
+                    language = request.headers.get("accept-language", "en").lower()
+                    if language.startswith("sk"):
+                        blocked_text = (
+                            "SQL POŽIADAVKA ZABLOKOVANÁ\n\n"
+                            f"`{blocked_operation}` je deštruktívna operácia. Data Agent "
+                            "je striktne read-only a nad izolovanou fiktívnou databázou "
+                            "povoľuje iba jeden dotaz SELECT alebo WITH. Žiadna tabuľka "
+                            "nebola zmenená.\n\n"
+                            "Skús napríklad: `SELECT * FROM customers LIMIT 20`"
+                        )
+                    else:
+                        blocked_text = (
+                            "SQL REQUEST BLOCKED\n\n"
+                            f"`{blocked_operation}` is a destructive operation. The Data "
+                            "Agent is strictly read-only and only allows one SELECT or WITH "
+                            "query against the isolated synthetic database. No table was "
+                            "changed.\n\n"
+                            "Try: `SELECT * FROM customers LIMIT 20`"
+                        )
+                    app.state.store.audit(
+                        user["id"],
+                        "data.query.blocked",
+                        f"conversation:{conversation_id}",
+                    )
+                    result = {
+                        "text": blocked_text,
+                        "model": None,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                    }
+                    rag_sources = []
+                else:
+                    result = app.state.data_agent.answer(
+                        question=content,
+                        user_id=user["id"],
+                        model=settings.get("data_model", settings["model"]),
+                        admin_system_prompt=system_prompt,
+                    )
+                    rag_sources = [result["source"]]
             else:
                 result = app.state.ai_provider.reply(
                     messages=prompt_messages,

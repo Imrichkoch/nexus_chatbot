@@ -429,6 +429,38 @@ def test_data_agent_accepts_direct_read_only_sql(client, app):
     assert app.state.fake_ai.report_calls[-1]["sql"].startswith("SELECT status")
 
 
+def test_data_agent_blocks_destructive_sql_with_a_persistent_chat_reply(client, app):
+    assert register(client).status_code == 201
+    conversation_id = client.post(
+        "/api/conversations", json={"title": "SQL safety", "agent_mode": "data"}
+    ).json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages/stream",
+        headers={"Accept-Language": "en"},
+        json={
+            "content": "Execute DROP TABLE customers",
+            "agent_mode": "data",
+        },
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert [event["type"] for event in events] == ["delta", "done"]
+    reply = events[-1]["assistant"]["content"]
+    assert "SQL REQUEST BLOCKED" in reply
+    assert "No table was changed" in reply
+    assert "SELECT" in reply
+    assert app.state.fake_ai.sql_calls == []
+    assert app.state.fake_ai.report_calls == []
+    detail = client.get(f"/api/conversations/{conversation_id}").json()
+    assert [message["role"] for message in detail["messages"]] == [
+        "user",
+        "assistant",
+    ]
+
+
 def test_data_agent_cannot_query_nexus_application_tables(client):
     assert register(client).status_code == 201
     conversation_id = client.post(

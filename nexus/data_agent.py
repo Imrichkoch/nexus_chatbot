@@ -22,6 +22,28 @@ FORBIDDEN_SQL = re.compile(
     re.IGNORECASE,
 )
 
+DESTRUCTIVE_SQL_REQUEST = re.compile(
+    r"^\s*(?:"
+    r"(?:(?:please\s+)?(?:execute|run)(?:\s+the)?(?:\s+sql)?|"
+    r"(?:pros[ií]m\s+)?(?:vykonaj|spusti)(?:\s+sql)?)\s+"
+    r")?(?P<operation>"
+    r"drop\s+(?:table|index|view|trigger)|delete\s+from|insert\s+into|"
+    r"update\s+[a-zA-Z_][\w.]*\s+set|alter\s+table|"
+    r"create\s+(?:table|index|view|trigger)|truncate\s+table|"
+    r"replace\s+into|attach\s+database|detach\s+database|"
+    r"pragma\b|vacuum\b|reindex\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def destructive_sql_operation(question: str) -> str | None:
+    """Return a normalized mutation phrase only for an SQL execution request."""
+    match = DESTRUCTIVE_SQL_REQUEST.match(question)
+    if not match:
+        return None
+    return " ".join(match.group("operation").upper().split())
+
 DENIED_ACTIONS = {
     value
     for name in (
