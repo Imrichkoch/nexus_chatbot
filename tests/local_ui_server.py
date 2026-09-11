@@ -15,6 +15,7 @@ SYNTHETIC_DATABASE = ROOT / "artifacts" / "ui-synthetic-business.sqlite3"
 
 
 def build_app():
+    DATABASE.parent.mkdir(parents=True, exist_ok=True)
     if DATABASE.exists():
         DATABASE.unlink()
     SNAPSHOT.write_text(
@@ -29,7 +30,7 @@ def build_app():
         ),
         encoding="utf-8",
     )
-    from conftest import FakeAI, FakeModelCatalog
+    from conftest import FakeAI, FakeModelCatalog, FakeLDAP
     from nexus.app import create_app
 
     def collect_live_infra():
@@ -49,6 +50,7 @@ def build_app():
         infra_snapshot_path=str(SNAPSHOT),
         live_infra_collector=collect_live_infra,
         synthetic_database_path=str(SYNTHETIC_DATABASE),
+        ldap_authenticator=FakeLDAP(ROOT / 'artifacts' / 'ui-ldap-secret'),
         secure_cookies=False,
     )
 

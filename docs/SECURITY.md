@@ -13,6 +13,10 @@ NexusChat is designed for a small private deployment. The controls below reduce 
 - Only a SHA-256 token hash is persisted in SQLite.
 - Cookies are HTTP-only, `SameSite=Lax`, and `Secure` in the production configuration.
 - Disabled users cannot create new authenticated sessions.
+- Deactivation and role changes revoke existing sessions permanently.
+- Bcrypt passwords are limited to 72 UTF-8 bytes to prevent silent truncation.
+- Validation responses omit raw input, including passwords and bind secrets.
+- Self-registration can be disabled with `NEXUS_REGISTRATION_ENABLED=0`.
 - Admin self-demotion and self-deactivation are rejected.
 
 ## HTTP protections
@@ -22,6 +26,8 @@ NexusChat is designed for a small private deployment. The controls below reduce 
 - Security headers include CSP, frame denial, MIME sniffing prevention, restricted referrer policy, permissions policy, and cross-origin isolation headers.
 - Authentication, registration, chat, and LIVE Infra paths are rate-limited in memory.
 - API responses and the SPA shell use `Cache-Control: no-store` where sensitive state may be involved.
+- Request bodies are bounded even without nginx; costly chat requests have a
+  separate concurrency cap. Both admission and rate limiting are process-local.
 
 ## Authorization and tenant boundaries
 
@@ -69,6 +75,9 @@ Never point `NEXUS_SYNTHETIC_DATABASE` at the application database or a producti
 - File names and content are validated server-side.
 - Document size and RAG result counts are bounded.
 - Retrieved text is treated as context, not trusted executable instructions.
+- The knowledge base is shared across users of the deployment. It has no
+  per-document or per-department ACL enforcement; use separate deployments for
+  different confidential corpora until that retrieval policy is implemented.
 
 ## Secrets and repository hygiene
 

@@ -48,7 +48,7 @@ The API key must never be stored in the repository or systemd unit itself.
 
 ## 4. Reverse proxy
 
-`deploy/nginx.conf.example` demonstrates hosting the app below `/nexus/`. Merge it into your own HTTPS server block and add your production host to `TrustedHostMiddleware` in `nexus/app.py`, then run:
+`deploy/nginx.conf.example` demonstrates hosting the app below `/nexus/`. Merge it into your own HTTPS server block, set `NEXUS_ALLOWED_HOSTS` to your production hostname and `NEXUS_BASE_PATH=/nexus`, then run:
 
 ```bash
 sudo nginx -t
@@ -104,3 +104,7 @@ Verify backups by opening a copy and running `PRAGMA integrity_check;`.
 9. Confirm database integrity, service status, and error-free logs.
 
 Keep the previous code archive and database backup as the rollback pair.
+
+Keep the matching Python environment too: a code-only rollback does not restore
+dependencies. See [Corporate migration](CORPORATE_MIGRATION.md) for the verified
+backup/restore CLI, container deployment and target-environment acceptance checks.

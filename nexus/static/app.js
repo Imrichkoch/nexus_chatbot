@@ -1,4 +1,4 @@
-const basePath = window.location.pathname.startsWith("/nexus") ? "/nexus" : "";
+const basePath = new URL('.', document.baseURI).pathname.replace(/\/$/, '');
 const apiBase = `${basePath}/api`;
 const RAG_MAX_FILES_PER_BATCH = 1000;
 const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -81,6 +81,7 @@ const TRANSLATIONS = {
   ragToggle: { en: "Enable or disable RAG", sk: "Zapnúť alebo vypnúť RAG" },
   ragCopy: { en: "Local knowledge base. Relevant passages are attached to the question and sources are shown with the answer.", sk: "Lokálna znalostná báza. Relevantné pasáže sa pripájajú k otázke a v odpovedi sa zobrazia zdroje." },
   maxPassages: { en: "Max. passages", sk: "Max. počet pasáží" },
+  ragCapacity: { en: '{count}/{max} documents in the knowledge base', sk: '{count}/{max} dokumentov v znalostnej báze' },
   addFiles: { en: "＋ ADD OR DROP FILES", sk: "＋ PRIDAŤ ALEBO PRETIAHNUŤ SÚBORY" },
   fileLimits: { en: "TXT, MD, JSON, YAML, CSV, or LOG · max 1000 at once · 10 MB/file · 50 MB/batch", sk: "TXT, MD, JSON, YAML, CSV alebo LOG · max 1000 naraz · 10 MB/súbor · 50 MB/dávka" },
   infraToggle: { en: "Enable or disable Infra Agent", sk: "Zapnúť alebo vypnúť Infra Agenta" },
@@ -106,6 +107,7 @@ const TRANSLATIONS = {
   nameAttribute: { en: "Name attribute", sk: "Atribút mena" },
   emailAttribute: { en: "E-mail attribute", sk: "Atribút e-mailu" },
   verifyTls: { en: "Verify TLS certificate", sk: "Overovať TLS certifikát" },
+  startTls: { en: 'StartTLS for ldap://', sk: 'StartTLS pre ldap://' },
   autoProvision: { en: "Automatically create a USER account after first sign-in", sk: "Automaticky vytvoriť USER účet po prvom prihlásení" },
   clearBindPassword: { en: "Remove saved bind password", sk: "Odstrániť uložené bind heslo" },
   ldapBoundary: { en: "The bind password is stored outside the database with service-only permissions and is never sent back to the browser.", sk: "Bind heslo sa ukladá mimo databázy s oprávnením iba pre službu a nikdy sa neposiela späť do prehliadača." },
@@ -201,7 +203,10 @@ const state = {
   models: [],
   settingsSaving: false,
   settingsDirty: false,
+  ldapDirty: false,
+  ldapBusy: false,
   ragUploading: false,
+  ragMaxDocuments: 1000,
 };
 
 const AGENT_WORKSPACES_SK = {
@@ -672,6 +677,12 @@ async function submitAuth(form, mode) {
 async function initialize() {
   setLanguage(state.language, false);
   bindEvents();
+  try {
+    const config = await api('/auth/config');
+    show($('[data-auth-mode="register"]'), config.registration_enabled);
+  } catch (error) {
+    show($('[data-auth-mode="register"]'), false);
+  }
   try {
     const result = await api("/auth/me");
     state.user = result.user;
@@ -1148,14 +1159,24 @@ function typingNode(mode, infraSource) {
 
 async function sendMessage(content) {
   if (!content.trim() || state.sending) return;
+  state.sending = true;
+  $('#send-button').disabled = true;
   const mode = state.agentMode;
   const infraSource = mode === "infra" ? state.infraSource : "snapshot";
   let conversation = state.activeConversationByAgent[mode];
   if (!conversation) {
     const title = content.trim().slice(0, 62);
-    conversation = await createConversation(
-      title.length < content.trim().length ? `${title}…` : title,
-    );
+    try {
+      conversation = await createConversation(
+        title.length < content.trim().length ? `${title}…` : title,
+      );
+    } catch (error) {
+      state.sending = false;
+      $('#send-button').disabled = false;
+      $('#message-input').value = content;
+      toast(error.message, 'error');
+      return;
+    }
   }
   state.sending = true;
   $("#send-button").disabled = true;
@@ -1230,7 +1251,10 @@ async function sendMessage(content) {
     conversation.messages = conversation.messages.filter(
       (message) => message.id !== optimistic.id,
     );
-    if (state.agentMode === mode) renderConversation();
+    if (state.agentMode === mode) {
+      renderConversation();
+      if (!$('#message-input').value) $('#message-input').value = content;
+    }
     toast(error.message, "error");
   } finally {
     state.sending = false;
@@ -1314,10 +1338,14 @@ async function loadAdmin() {
     $("#sidebar-model").textContent = settings.model;
     $("#api-status").textContent = settings.api_configured ? "API ONLINE" : "API MISSING";
     $("#api-status").style.color = settings.api_configured ? "var(--mint)" : "var(--danger)";
+    state.ragMaxDocuments = rag.capacity?.max_documents || 1000;
     renderDocuments(rag.documents);
+    if (rag.capacity) $('#rag-capacity').textContent = t('ragCapacity', {
+      count: rag.capacity.documents, max: rag.capacity.max_documents,
+    });
     renderInfraStatus(infra);
     renderDataSchema(dataSchema.schema);
-    renderLdapSettings(ldap);
+    if (!state.ldapDirty && !state.ldapBusy) renderLdapSettings(ldap);
     loadModelCatalog();
   } catch (error) {
     toast(error.message, "error");
@@ -1381,6 +1409,7 @@ function updateModelMeta() {
 }
 
 function renderDocuments(documents) {
+  $('#rag-capacity').textContent = t('ragCapacity', { count: documents.length, max: state.ragMaxDocuments });
   const container = $("#rag-documents");
   container.replaceChildren();
   if (!documents.length) {
@@ -1515,36 +1544,45 @@ function ldapSettingsPayload() {
 }
 
 async function saveLdapSettings(form, quiet = false) {
+  if (state.ldapBusy || !form.reportValidity()) return false;
+  state.ldapBusy = true;
+  const submitted = JSON.stringify(ldapSettingsPayload());
   const buttons = form.querySelectorAll("button");
   buttons.forEach((button) => { button.disabled = true; });
   try {
     const settings = await api("/admin/ldap", {
       method: "PUT",
-      body: JSON.stringify(ldapSettingsPayload()),
+      body: submitted,
     });
-    renderLdapSettings(settings);
+    if (JSON.stringify(ldapSettingsPayload()) === submitted) {
+      state.ldapDirty = false;
+      renderLdapSettings(settings);
+    }
     if (!quiet) toast(t("ldapSaved"));
     return true;
   } catch (error) {
     toast(error.message, "error");
     return false;
   } finally {
+    state.ldapBusy = false;
     buttons.forEach((button) => { button.disabled = false; });
   }
 }
 
 async function testLdapConnection() {
+  if (state.ldapBusy || !$('#ldap-settings-form').reportValidity()) return;
+  state.ldapBusy = true;
   const button = $("#ldap-test");
   const original = button.textContent;
-  if (!(await saveLdapSettings($("#ldap-settings-form"), true))) return;
   button.disabled = true;
   button.textContent = t("ldapTesting");
   try {
-    await api("/admin/ldap/test", { method: "POST" });
+    await api("/admin/ldap/test", { method: "POST", body: JSON.stringify(ldapSettingsPayload()) });
     toast(t("ldapConnected"));
   } catch (error) {
     toast(error.message, "error");
   } finally {
+    state.ldapBusy = false;
     button.disabled = false;
     button.textContent = original;
   }
@@ -1582,7 +1620,7 @@ function renderUsers(users) {
     role.innerHTML = '<option value="user">USER</option><option value="admin">ADMIN</option>';
     role.value = user.role;
     role.setAttribute("aria-label", t("userRoleLabel", { name: user.name }));
-    role.disabled = user.id === state.user.id;
+    role.disabled = user.id === state.user.id || user.auth_source === 'ldap';
     role.addEventListener("change", () => updateUser(user.id, { role: role.value }));
     roleCell.appendChild(role);
 
@@ -1761,7 +1799,9 @@ async function discardSettings() {
 }
 
 async function logout(notify = true) {
-  if (notify && state.settingsDirty && !window.confirm(t("discardChangesPrompt"))) return;
+  if (notify && (state.settingsDirty || state.ldapDirty) && !window.confirm(t("discardChangesPrompt"))) return;
+  state.ldapDirty = false;
+  $('#ldap-bind-password').value = '';
   try {
     await api("/auth/logout", { method: "POST" });
   } catch {}
@@ -1889,6 +1929,8 @@ function bindEvents() {
     saveLdapSettings(event.currentTarget);
   });
   $("#ldap-test").addEventListener("click", testLdapConnection);
+  $('#ldap-settings-form').addEventListener('input', () => { state.ldapDirty = true; });
+  $('#ldap-enabled').addEventListener('input', () => { state.ldapDirty = true; });
   $("#settings-dirty-discard").addEventListener("click", discardSettings);
   $("#admin-user-create-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1985,7 +2027,7 @@ function bindEvents() {
     }
   });
   window.addEventListener("beforeunload", (event) => {
-    if (!state.settingsDirty) return;
+    if (!state.settingsDirty && !state.ldapDirty) return;
     event.preventDefault();
     event.returnValue = "";
   });

@@ -6,11 +6,8 @@
   <meta name="theme-color" content="#07100f">
   <meta name="description" content="NexusChat — súkromný AI pracovný priestor.">
   <title>NexusChat / AI workspace</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/styles.css?v=20260904a">
-  <script src="assets/app.js?v=20260904a" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260911a">
+  <script src="assets/app.js?v=20260911a" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
@@ -328,6 +325,7 @@
               </label>
             </div>
             <p id="rag-upload-status" class="rag-upload-status" aria-live="polite"></p>
+            <p id="rag-capacity" class="field-note"></p>
             <div id="rag-documents" class="document-list"></div>
           </article>
 
@@ -413,7 +411,7 @@
               </div>
               <div class="ldap-options">
                 <label class="check-row"><input id="ldap-start-tls" type="checkbox"><span>StartTLS pre ldap://</span></label>
-                <label class="check-row"><input id="ldap-verify-tls" type="checkbox" checked><span>Overovať TLS certifikát</span></label>
+                <label class="check-row"><input id="ldap-verify-tls" type="checkbox" checked disabled><span>Overovať TLS certifikát</span></label>
                 <label class="check-row"><input id="ldap-auto-provision" type="checkbox" checked><span>Automaticky vytvoriť USER účet po prvom prihlásení</span></label>
                 <label class="check-row"><input id="ldap-clear-password" type="checkbox"><span>Odstrániť uložené bind heslo</span></label>
               </div>

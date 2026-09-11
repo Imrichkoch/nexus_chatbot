@@ -115,7 +115,7 @@ class FakeLDAP:
     def clear_bind_password(self):
         self.secret_path.unlink(missing_ok=True)
 
-    def test_connection(self, settings):
+    def test_connection(self, settings, password=None):
         self.test_calls.append(settings)
         return {"message": "LDAP connection successful."}
 

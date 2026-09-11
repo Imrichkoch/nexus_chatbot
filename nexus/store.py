@@ -15,6 +15,10 @@ import bcrypt
 from nexus.rag import chunk_text, fts_query
 
 
+class StorageQuotaExceeded(ValueError):
+    pass
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -61,8 +65,8 @@ class Store:
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
         if self._memory_connection is not None:
-            yield self._memory_connection
-            self._memory_connection.commit()
+            with self._memory_connection:
+                yield self._memory_connection
             return
         connection = self._new_connection()
         try:
@@ -344,11 +348,18 @@ class Store:
         password: str,
         role: str = "user",
     ) -> dict[str, Any]:
+        if len(password.encode('utf-8')) > 72:
+            raise ValueError('Password must be at most 72 UTF-8 bytes.')
         password_hash = bcrypt.hashpw(
             password.encode("utf-8"), bcrypt.gensalt(rounds=12)
         ).decode("ascii")
         now = utc_now()
         with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            identifiers = [email.strip(), username.strip() if username else email.strip()]
+            if db.execute('SELECT 1 FROM users WHERE email IN (?, ?) COLLATE NOCASE OR username IN (?, ?) COLLATE NOCASE',
+                          (*identifiers, *identifiers)).fetchone():
+                raise sqlite3.IntegrityError('Login identifier already exists')
             cursor = db.execute(
                 """
                 INSERT INTO users
@@ -415,6 +426,8 @@ class Store:
     def verify_password(self, user: dict[str, Any], password: str) -> bool:
         if user.get("auth_source", "local") != "local":
             return False
+        if len(password.encode('utf-8')) > 72:
+            return False
         return bcrypt.checkpw(
             password.encode("utf-8"), user["password_hash"].encode("ascii")
         )
@@ -446,6 +459,8 @@ class Store:
                 ).fetchone()
             if row is not None and row["auth_source"] != "ldap":
                 raise sqlite3.IntegrityError("LDAP identifier belongs to a local user")
+            if row is not None and row['directory_dn'].casefold() != clean_dn.casefold():
+                raise sqlite3.IntegrityError('LDAP identity cannot be reassigned')
 
             clean_email = (email or "").strip().lower()
             if clean_email:
@@ -494,11 +509,11 @@ class Store:
             ).fetchone()
         return dict(result)
 
-    def create_session(self, user_id: int, days: int = 7) -> str:
+    def create_session(self, user_id: int, days: int = 7, *, hours: int | None = None) -> str:
         token = secrets.token_urlsafe(40)
         token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         now = datetime.now(timezone.utc)
-        expires = now + timedelta(days=days)
+        expires = now + (timedelta(hours=hours) if hours is not None else timedelta(days=days))
         with self.connection() as db:
             db.execute("DELETE FROM sessions WHERE expires_at < ?", (utc_now(),))
             db.execute(
@@ -558,6 +573,9 @@ class Store:
         role: str | None = None,
         is_active: bool | None = None,
     ) -> dict[str, Any] | None:
+        existing = self.get_user(user_id)
+        if existing and existing['auth_source'] == 'ldap' and role == 'admin':
+            raise ValueError('LDAP accounts cannot become administrators.')
         fields: list[str] = []
         values: list[Any] = []
         if role is not None:
@@ -573,6 +591,8 @@ class Store:
                     f"UPDATE users SET {', '.join(fields)} WHERE id = ?",
                     tuple(values),
                 )
+                if is_active is False or role is not None:
+                    db.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
         return self.get_user(user_id)
 
     def create_conversation(
@@ -772,6 +792,14 @@ class Store:
         prepared = [(name, content, chunk_text(content)) for name, content in documents]
         created: list[dict[str, Any]] = []
         with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            count, characters = db.execute(
+                'SELECT count(*), COALESCE(sum(character_count), 0) FROM rag_documents'
+            ).fetchone()
+            max_files = int(os.getenv('NEXUS_RAG_MAX_DOCUMENTS', '1000'))
+            max_characters = int(os.getenv('NEXUS_RAG_MAX_CHARACTERS', '200000000'))
+            if count + len(documents) > max_files or characters + sum(len(content) for _, content in documents) > max_characters:
+                raise StorageQuotaExceeded('Knowledge base capacity exceeded. Remove documents or ask an administrator to increase the deployment quota.')
             for name, content, chunks in prepared:
                 cursor = db.execute(
                     """

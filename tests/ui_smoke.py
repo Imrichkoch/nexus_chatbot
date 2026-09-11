@@ -251,6 +251,21 @@ def run() -> None:
         desktop.get_by_text("LDAP configuration saved.", exact=True).wait_for(
             state="visible"
         )
+        desktop.locator('#ldap-url').fill('ldaps://directory.example.test')
+        desktop.locator('#ldap-base-dn').fill('dc=example,dc=test')
+        desktop.locator('.workspace-language-switcher [data-language="sk"]').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#ldap-url').input_value() == 'ldaps://directory.example.test'
+        desktop.locator('.workspace-language-switcher [data-language="en"]').click()
+        desktop.locator('#ldap-test').click()
+        desktop.get_by_text('LDAP connection is working.', exact=True).wait_for(state='visible')
+        saved_ldap = desktop.evaluate("async () => (await fetch('/api/admin/ldap')).json()")
+        assert saved_ldap['url'] == ''
+        assert saved_ldap['enabled'] is False
+        desktop.locator('#ldap-url').fill('')
+        desktop.locator('#ldap-base-dn').fill('')
+        desktop.locator('#ldap-settings-form button[type=submit]').click()
+        desktop.wait_for_function("() => !state.ldapDirty")
         desktop.screenshot(
             path=str(OUTPUT_DIR / "nexus-ldap-desktop.png"),
             full_page=False,

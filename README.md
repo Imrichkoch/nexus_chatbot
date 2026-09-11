@@ -6,6 +6,12 @@ The web interface defaults to English and can be switched to Slovak from both th
 
 Live deployment: [raizenko.cloud/nexus](https://raizenko.cloud/nexus/)
 
+For production transfer, start with the [corporate migration runbook](docs/CORPORATE_MIGRATION.md)
+and `deploy/corporate.env.example`. The supported deployment is one organization,
+one host and one worker with local SQLite storage. Docker, backup/restore tooling,
+directory authentication and CI verification are included; HA, tenant-level RAG
+permissions and SSO/MFA require additional integration.
+
 ## Highlights
 
 - Local accounts with bcrypt password hashing and server-side HTTP-only sessions
@@ -87,9 +93,9 @@ Self-registration uses name, e-mail, and password validation. Accounts created f
 
 ### LDAP directory authentication
 
-LDAP is disabled by default and is configured in the final **A6 / LDAP integration** card in the administrator control plane. The administrator can configure an `ldap://` or `ldaps://` endpoint, optional StartTLS, certificate verification, Base DN, service bind DN, user search filter, and name/e-mail attribute mapping. The test action saves the visible configuration and then verifies the service bind and Base DN lookup.
+LDAP is disabled by default and is configured in the final **A6 / LDAP integration** card in the administrator control plane. Configure an `ldap://` or `ldaps://` endpoint, StartTLS, Base DN, service bind DN, user search filter, and name/e-mail attribute mapping. The test action verifies the visible draft's service bind and Base DN lookup without saving or enabling it. Save explicitly after a successful test. Unsaved LDAP edits survive language changes and admin refreshes.
 
-The bind password is deliberately separate from normal runtime settings: it is stored in `NEXUS_LDAP_SECRET_PATH`, atomically replaced, restricted to mode `0600`, and never returned by the API. A blank password field retains the current secret; the explicit removal checkbox deletes it. Application logs use generic LDAP failure messages and do not include credentials.
+The bind password is stored in `NEXUS_LDAP_SECRET_PATH`, atomically replaced with mode `0600`, and never returned by the API. A blank password field retains it; the explicit removal checkbox deletes it. Logs omit credentials. LDAPS or StartTLS and certificate verification are required; set `NEXUS_LDAP_CA_FILE` for a corporate CA. Referrals are disabled.
 
 Login keeps local and directory identities separate. An existing local username is always authenticated locally and cannot be taken over by LDAP. After a successful directory bind, auto-provisioning creates or updates a local shadow record with `auth_source=ldap`; it always has the `user` role. LDAP can never provision or promote an administrator. The shadow record allows the existing session, deactivation, audit, and ownership logic to remain authoritative. Disabling that record blocks the LDAP identity, while disabling LDAP leaves all local accounts working.
 
@@ -153,7 +159,7 @@ Uploading files and retrieving passages are deliberately separate operations wit
 5. `chunk_text()` groups paragraphs into chunks targeting approximately 1,400 characters.
 6. The single-file endpoint delegates to the same transaction-scoped batch insertion path.
 
-There is currently no global document-count ceiling. The 1,000-file value is the maximum size of one browser upload selection, not the number of passages sent to a model.
+The upload selection accepts up to 1,000 files. The whole knowledge base also defaults to a 1,000-document and 200-million-character quota, configurable with `NEXUS_RAG_MAX_DOCUMENTS` and `NEXUS_RAG_MAX_CHARACTERS`. Quota checking and insertion use one write transaction, so concurrent batches cannot both consume the same remaining capacity. Existing documents are never deleted when a quota is reduced. This is separate from the number of passages sent to a model.
 
 #### Retrieval
 
@@ -328,6 +334,12 @@ The synthetic reporting database is created and seeded automatically. Infra snap
 | `NEXUS_INFRA_MODEL` | Infra assistant model | general model |
 | `NEXUS_DATA_MODEL` | SQL/reporting model | general model |
 | `NEXUS_SECURE_COOKIES` | Restrict session cookies to HTTPS | `1` |
+| `NEXUS_ALLOWED_HOSTS` | Comma-separated trusted deployment hostnames | reference deployment + localhost |
+| `NEXUS_BASE_PATH` | Proxy URL prefix and cookie path | `/nexus` for secure defaults, empty for local HTTP |
+| `NEXUS_REGISTRATION_ENABLED` | Permit public account creation | `1`; corporate template uses `0` |
+| `NEXUS_SESSION_HOURS` | Absolute lifetime of new sessions | `168`; corporate template uses `8` |
+| `NEXUS_MAX_CONCURRENT_CHATS` | Simultaneous generations per worker | `4` |
+| `NEXUS_LDAP_CA_FILE` | Optional corporate CA PEM | system trust |
 
 Runtime model names, system instructions, RAG limits, agent access policies, and non-secret LDAP settings are managed in the admin control plane and persisted in SQLite. The LDAP bind password is stored only in the separate secret file.
 
@@ -357,6 +369,9 @@ nexus/
   infra.py        snapshot parsing and bounded LIVE collection
   data_agent.py   synthetic database and SQL sandbox
   ldap_auth.py    TLS-aware LDAP search, bind, and secret-file handling
+  config.py       validated deployment environment settings
+  middleware.py   bounded request bodies and chat admission
+  backup.py       verified backup/restore to a new destination
   static/         responsive single-page frontend
 tests/            API, persistence, security, and Playwright tests
 deploy/           sanitized systemd and nginx examples

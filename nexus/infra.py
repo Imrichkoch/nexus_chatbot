@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import urllib.request
 from datetime import datetime, timezone
@@ -134,28 +135,16 @@ def _health() -> list[dict[str, str | bool]]:
 
 
 def _tls() -> dict[str, str | bool]:
-    code, certificate = _run(
-        "openssl",
-        "s_client",
-        "-servername",
-        "raizenko.cloud",
-        "-connect",
-        "127.0.0.1:443",
-        timeout=5,
-        input_text="",
-    )
-    if code != 0 or not certificate:
-        return {"valid": False, "expires": "unknown"}
-    code, output = _run(
-        "openssl",
-        "x509",
-        "-noout",
-        "-enddate",
-        timeout=3,
-        input_text=certificate,
-    )
-    expiry = output.removeprefix("notAfter=").strip()
-    return {"valid": code == 0 and bool(expiry), "expires": expiry or "unknown"}
+    hostname = os.getenv('NEXUS_TLS_HOST', 'raizenko.cloud')
+    address = os.getenv('NEXUS_TLS_ADDRESS', '127.0.0.1')
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((address, 443), timeout=5) as tcp:
+            with context.wrap_socket(tcp, server_hostname=hostname) as tls:
+                cert = tls.getpeercert()
+                return {'host': hostname, 'valid': True, 'expires': cert.get('notAfter', 'unknown')}
+    except (OSError, ValueError):
+        return {'host': hostname, 'valid': False, 'expires': 'unknown'}
 
 
 def _nginx_config() -> dict[str, str | bool | None]:
@@ -181,7 +170,7 @@ def collect_infra_state(
         "services": _services(),
         "health": _health(),
         "listening_tcp_ports": _listening_ports(),
-        "tls_raizenko_cloud": _tls(),
+        "tls": _tls(),
         "nginx_config": _nginx_config(),
         "scope": "sanitized_read_only",
         "collection_mode": collection_mode,
