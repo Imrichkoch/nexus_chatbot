@@ -120,7 +120,10 @@ def validated_query(sql: str, settings: ConnectionSettings) -> str:
     for node in tree.walk():
         if type(node).__name__ in denied:
             raise QueryRejected('SQL contains a non-reporting operation.')
-        if isinstance(node, exp.Func):
+        # SQLGlot models boolean connectors such as AND as both Binary and Func.
+        # They are operators, not callable SQL functions, and belong in the safe
+        # reporting grammar without weakening the real function allowlist.
+        if isinstance(node, exp.Func) and not isinstance(node, exp.Binary):
             name = node.name.upper() if isinstance(node, exp.Anonymous) else node.sql_name()
             if name not in SAFE_FUNCTIONS:
                 raise QueryRejected('This SQL function is outside the reporting allowlist.')

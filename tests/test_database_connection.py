@@ -131,6 +131,19 @@ def test_reporting_query_uses_selected_sql_dialect(kind):
     assert 'TOP 101' in query if kind == 'mssql' else True
 
 
+def test_reporting_query_allows_compound_date_range_predicate():
+    config = ConnectionSettings(kind='sqlite', database='finance.sqlite3',
+                                schema_name='main', tables=['invoices'])
+    query = validated_query(
+        "SELECT * FROM invoices WHERE issued_on >= '2026-01-01' "
+        "AND issued_on < '2027-01-01'",
+        config,
+    )
+
+    assert "issued_on >= '2026-01-01'" in query
+    assert "issued_on < '2027-01-01'" in query
+
+
 def test_cte_is_resolved_without_allowing_a_hidden_base_table():
     config = ConnectionSettings(kind='postgresql', tables=['revenue'])
     assert '101' in validated_query('WITH totals AS (SELECT SUM(amount) AS n FROM revenue) SELECT * FROM totals', config)
