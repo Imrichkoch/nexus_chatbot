@@ -188,3 +188,32 @@ def test_sql_report_preserves_original_language_and_admin_instructions(monkeypat
     assert "Original user request:" in captured["messages"][0]["content"]
     assert "Požiadavka:" not in captured["messages"][0]["content"]
 
+
+def test_sql_planner_resolves_relative_dates_without_sql_functions(monkeypatch):
+    captured = {}
+    provider = ai_module.OpenAIProvider(api_key="test-key", base_url="")
+
+    def fake_reply(**kwargs):
+        captured.update(kwargs)
+        return {
+            "text": (
+                "SELECT * FROM invoices WHERE issued_on >= '2026-01-01' "
+                "AND issued_on < '2027-01-01'"
+            )
+        }
+
+    monkeypatch.setattr(provider, "reply", fake_reply)
+    monkeypatch.setattr(ai_module, "sql_planning_date", lambda: "2026-09-12")
+
+    provider.generate_sql(
+        question="vyhladaj mi faktury za tento rok",
+        schema="SQL dialect: sqlite.\nTABLE invoices (issued_on TEXT)",
+        user_id=42,
+        model="gpt-5.6-terra",
+    )
+
+    prompt = captured["system_prompt"]
+    assert "Current date: 2026-09-12" in prompt
+    assert "half-open literal date ranges" in prompt
+    assert "Do not use SQL date/time functions" in prompt
+
