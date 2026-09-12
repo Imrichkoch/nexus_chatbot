@@ -195,6 +195,8 @@ External sources require connection validation, table selection and explicit
 read-only/data-egress approval. Do not configure the Nexus application database as
 a reporting source. See [External reporting databases](docs/DATABASE_CONNECTIONS.md)
 for drivers, credentials, TLS, access restrictions and operational limits.
+Four reproducible fictional sources for demonstrations are documented in
+[Fictional Data-agent databases](docs/DEMO_DATABASES.md).
 
 ```mermaid
 flowchart LR
