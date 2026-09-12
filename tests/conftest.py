@@ -99,20 +99,51 @@ class FakeModelCatalog:
         ]
 
 
+class FakeLDAP:
+    def __init__(self, secret_path):
+        self.secret_path = Path(secret_path)
+        self.identities = {}
+        self.test_calls = []
+        self.auth_calls = []
+
+    def has_bind_password(self):
+        return self.secret_path.exists()
+
+    def set_bind_password(self, password):
+        self.secret_path.write_text(password, encoding="utf-8")
+
+    def clear_bind_password(self):
+        self.secret_path.unlink(missing_ok=True)
+
+    def test_connection(self, settings, password=None):
+        self.test_calls.append(settings)
+        return {"message": "LDAP connection successful."}
+
+    def authenticate(self, settings, identifier, password):
+        self.auth_calls.append((settings, identifier, password))
+        identity = self.identities.get(identifier.casefold())
+        if not identity or password != identity.get("_password"):
+            return None
+        return {key: value for key, value in identity.items() if key != "_password"}
+
+
 @pytest.fixture
 def app(tmp_path):
     from nexus.app import create_app
 
     fake_ai = FakeAI()
+    fake_ldap = FakeLDAP(tmp_path / "ldap-bind-password")
     application = create_app(
         database_path=str(tmp_path / "test.sqlite3"),
         ai_provider=fake_ai,
         model_catalog=FakeModelCatalog(),
         infra_snapshot_path=str(tmp_path / "infra-snapshot.json"),
         synthetic_database_path=str(tmp_path / "synthetic-business.sqlite3"),
+        ldap_authenticator=fake_ldap,
         secure_cookies=False,
     )
     application.state.fake_ai = fake_ai
+    application.state.fake_ldap = fake_ldap
     application.state.store.create_user(
         name="Nexus Admin",
         email="admin@example.test",

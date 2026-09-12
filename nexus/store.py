@@ -15,6 +15,10 @@ import bcrypt
 from nexus.rag import chunk_text, fts_query
 
 
+class StorageQuotaExceeded(ValueError):
+    pass
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -31,6 +35,9 @@ def public_user(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         "is_active": bool(row["is_active"]),
         "created_at": row["created_at"],
         "last_login_at": row["last_login_at"],
+        "auth_source": (
+            row["auth_source"] if "auth_source" in row.keys() else "local"
+        ),
     }
 
 
@@ -58,8 +65,8 @@ class Store:
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
         if self._memory_connection is not None:
-            yield self._memory_connection
-            self._memory_connection.commit()
+            with self._memory_connection:
+                yield self._memory_connection
             return
         connection = self._new_connection()
         try:
@@ -82,7 +89,10 @@ class Store:
                         CHECK (role IN ('user', 'admin')),
                     is_active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
-                    last_login_at TEXT
+                    last_login_at TEXT,
+                    auth_source TEXT NOT NULL DEFAULT 'local'
+                        CHECK (auth_source IN ('local', 'ldap')),
+                    directory_dn TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -167,9 +177,19 @@ class Store:
             }
             if "username" not in user_columns:
                 db.execute("ALTER TABLE users ADD COLUMN username TEXT COLLATE NOCASE")
+            if "auth_source" not in user_columns:
+                db.execute(
+                    "ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'"
+                )
+            if "directory_dn" not in user_columns:
+                db.execute("ALTER TABLE users ADD COLUMN directory_dn TEXT")
             db.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase "
                 "ON users(username COLLATE NOCASE) WHERE username IS NOT NULL"
+            )
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_directory_dn_nocase "
+                "ON users(directory_dn COLLATE NOCASE) WHERE directory_dn IS NOT NULL"
             )
             message_columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()
@@ -192,6 +212,10 @@ class Store:
                     "ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'general'"
                 )
                 self._split_legacy_conversations(db)
+            if 'database_connection_id' not in conversation_columns:
+                db.execute('ALTER TABLE conversations ADD COLUMN database_connection_id TEXT')
+            if 'infra_connection_id' not in conversation_columns:
+                db.execute('ALTER TABLE conversations ADD COLUMN infra_connection_id TEXT')
             db.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_conversations_user_agent
@@ -205,7 +229,7 @@ class Store:
                     "používateľa, jasne oddeľ fakty od odhadov a nevymýšľaj si zdroje."
                 ),
                 "rag_enabled": "0",
-                "rag_max_chunks": "4",
+                "rag_max_chunks": "6",
                 "infra_agent_enabled": "0",
                 "infra_agent_admin_only": "1",
                 "infra_live_enabled": "1",
@@ -219,6 +243,16 @@ class Store:
                     "NEXUS_DATA_MODEL",
                     os.getenv("NEXUS_DEFAULT_MODEL", "gpt-5.6-luna"),
                 ),
+                "ldap_enabled": "0",
+                "ldap_url": "",
+                "ldap_start_tls": "0",
+                "ldap_verify_tls": "1",
+                "ldap_base_dn": "",
+                "ldap_bind_dn": "",
+                "ldap_user_filter": "(uid={username})",
+                "ldap_name_attribute": "displayName",
+                "ldap_email_attribute": "mail",
+                "ldap_auto_provision": "1",
             }
             for key, value in defaults.items():
                 db.execute(
@@ -318,11 +352,18 @@ class Store:
         password: str,
         role: str = "user",
     ) -> dict[str, Any]:
+        if len(password.encode('utf-8')) > 72:
+            raise ValueError('Password must be at most 72 UTF-8 bytes.')
         password_hash = bcrypt.hashpw(
             password.encode("utf-8"), bcrypt.gensalt(rounds=12)
         ).decode("ascii")
         now = utc_now()
         with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            identifiers = [email.strip(), username.strip() if username else email.strip()]
+            if db.execute('SELECT 1 FROM users WHERE email IN (?, ?) COLLATE NOCASE OR username IN (?, ?) COLLATE NOCASE',
+                          (*identifiers, *identifiers)).fetchone():
+                raise sqlite3.IntegrityError('Login identifier already exists')
             cursor = db.execute(
                 """
                 INSERT INTO users
@@ -387,15 +428,96 @@ class Store:
         return public_user(row) if row else None
 
     def verify_password(self, user: dict[str, Any], password: str) -> bool:
+        if user.get("auth_source", "local") != "local":
+            return False
+        if len(password.encode('utf-8')) > 72:
+            return False
         return bcrypt.checkpw(
             password.encode("utf-8"), user["password_hash"].encode("ascii")
         )
 
-    def create_session(self, user_id: int, days: int = 7) -> str:
+    def upsert_ldap_user(
+        self,
+        *,
+        identifier: str,
+        name: str,
+        email: str | None,
+        directory_dn: str,
+    ) -> dict[str, Any]:
+        clean_identifier = identifier.strip()
+        clean_name = name.strip() or clean_identifier
+        clean_dn = directory_dn.strip()
+        synthetic_email = (
+            f"ldap-{hashlib.sha256(clean_dn.encode('utf-8')).hexdigest()[:24]}"
+            "@nexus.invalid"
+        )
+        with self.connection() as db:
+            row = db.execute(
+                "SELECT * FROM users WHERE directory_dn = ? COLLATE NOCASE",
+                (clean_dn,),
+            ).fetchone()
+            if row is None:
+                row = db.execute(
+                    "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+                    (clean_identifier,),
+                ).fetchone()
+            if row is not None and row["auth_source"] != "ldap":
+                raise sqlite3.IntegrityError("LDAP identifier belongs to a local user")
+            if row is not None and row['directory_dn'].casefold() != clean_dn.casefold():
+                raise sqlite3.IntegrityError('LDAP identity cannot be reassigned')
+
+            clean_email = (email or "").strip().lower()
+            if clean_email:
+                collision = db.execute(
+                    "SELECT id FROM users WHERE email = ? COLLATE NOCASE",
+                    (clean_email,),
+                ).fetchone()
+                if collision and (row is None or collision["id"] != row["id"]):
+                    clean_email = synthetic_email
+            else:
+                clean_email = synthetic_email
+
+            if row is None:
+                unusable_hash = bcrypt.hashpw(
+                    secrets.token_bytes(32), bcrypt.gensalt(rounds=12)
+                ).decode("ascii")
+                cursor = db.execute(
+                    """
+                    INSERT INTO users
+                        (name, username, email, password_hash, role, is_active,
+                         created_at, auth_source, directory_dn)
+                    VALUES (?, ?, ?, ?, 'user', 1, ?, 'ldap', ?)
+                    """,
+                    (
+                        clean_name,
+                        clean_identifier,
+                        clean_email,
+                        unusable_hash,
+                        utc_now(),
+                        clean_dn,
+                    ),
+                )
+                user_id = cursor.lastrowid
+            else:
+                user_id = row["id"]
+                db.execute(
+                    """
+                    UPDATE users
+                    SET name = ?, email = ?, role = 'user', directory_dn = ?
+                    WHERE id = ?
+                    """,
+                    (clean_name, clean_email, clean_dn, user_id),
+                )
+            result = db.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return dict(result)
+
+    def create_session(self, user_id: int, days: int = 7, *, hours: int | None = None) -> str:
         token = secrets.token_urlsafe(40)
         token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         now = datetime.now(timezone.utc)
-        expires = now + timedelta(days=days)
+        expires = now + (timedelta(hours=hours) if hours is not None else timedelta(days=days))
         with self.connection() as db:
             db.execute("DELETE FROM sessions WHERE expires_at < ?", (utc_now(),))
             db.execute(
@@ -455,6 +577,9 @@ class Store:
         role: str | None = None,
         is_active: bool | None = None,
     ) -> dict[str, Any] | None:
+        existing = self.get_user(user_id)
+        if existing and existing['auth_source'] == 'ldap' and role == 'admin':
+            raise ValueError('LDAP accounts cannot become administrators.')
         fields: list[str] = []
         values: list[Any] = []
         if role is not None:
@@ -470,6 +595,8 @@ class Store:
                     f"UPDATE users SET {', '.join(fields)} WHERE id = ?",
                     tuple(values),
                 )
+                if is_active is False or role is not None:
+                    db.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
         return self.get_user(user_id)
 
     def create_conversation(
@@ -477,21 +604,39 @@ class Store:
         user_id: int,
         title: str,
         agent_mode: str = "general",
+        database_connection_id: str | None = None,
+        infra_connection_id: str | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         with self.connection() as db:
             cursor = db.execute(
                 """
                 INSERT INTO conversations
-                    (user_id, title, agent_mode, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                    (user_id, title, agent_mode, created_at, updated_at, database_connection_id, infra_connection_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, title, agent_mode, now, now),
+                (user_id, title, agent_mode, now, now, database_connection_id, infra_connection_id),
             )
             row = db.execute(
                 "SELECT * FROM conversations WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
         return dict(row)
+
+    def bind_legacy_database_chats(self, connection_id):
+        with self.connection() as db:
+            db.execute("UPDATE conversations SET database_connection_id = ? WHERE agent_mode = 'data' AND database_connection_id IS NULL", (connection_id,))
+
+    def database_connection_usage(self, connection_id):
+        with self.connection() as db:
+            return db.execute('SELECT count(*) FROM conversations WHERE database_connection_id = ?', (connection_id,)).fetchone()[0]
+
+    def bind_legacy_infra_chats(self):
+        with self.connection() as db:
+            db.execute("UPDATE conversations SET infra_connection_id = 'local' WHERE agent_mode = 'infra' AND infra_connection_id IS NULL")
+
+    def infra_connection_usage(self, connection_id):
+        with self.connection() as db:
+            return db.execute('SELECT count(*) FROM conversations WHERE infra_connection_id = ?', (connection_id,)).fetchone()[0]
 
     def list_conversations(
         self,
@@ -660,34 +805,50 @@ class Store:
         return message
 
     def create_rag_document(self, name: str, content: str) -> dict[str, Any]:
-        chunks = chunk_text(content)
-        now = utc_now()
+        return self.create_rag_documents([(name, content)])[0]
+
+    def create_rag_documents(
+        self, documents: list[tuple[str, str]]
+    ) -> list[dict[str, Any]]:
+        """Insert a validated document batch in one SQLite transaction."""
+        prepared = [(name, content, chunk_text(content)) for name, content in documents]
+        created: list[dict[str, Any]] = []
         with self.connection() as db:
-            cursor = db.execute(
-                """
-                INSERT INTO rag_documents
-                    (name, character_count, chunk_count, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (name, len(content), len(chunks), now),
-            )
-            document_id = int(cursor.lastrowid)
-            for index, chunk in enumerate(chunks, start=1):
-                chunk_cursor = db.execute(
-                    """
-                    INSERT INTO rag_chunks (document_id, chunk_index, content)
-                    VALUES (?, ?, ?)
-                    """,
-                    (document_id, index, chunk),
-                )
-                db.execute(
-                    "INSERT INTO rag_chunks_fts(rowid, content) VALUES (?, ?)",
-                    (chunk_cursor.lastrowid, chunk),
-                )
-            row = db.execute(
-                "SELECT * FROM rag_documents WHERE id = ?", (document_id,)
+            db.execute('BEGIN IMMEDIATE')
+            count, characters = db.execute(
+                'SELECT count(*), COALESCE(sum(character_count), 0) FROM rag_documents'
             ).fetchone()
-        return dict(row)
+            max_files = int(os.getenv('NEXUS_RAG_MAX_DOCUMENTS', '1000'))
+            max_characters = int(os.getenv('NEXUS_RAG_MAX_CHARACTERS', '200000000'))
+            if count + len(documents) > max_files or characters + sum(len(content) for _, content in documents) > max_characters:
+                raise StorageQuotaExceeded('Knowledge base capacity exceeded. Remove documents or ask an administrator to increase the deployment quota.')
+            for name, content, chunks in prepared:
+                cursor = db.execute(
+                    """
+                    INSERT INTO rag_documents
+                        (name, character_count, chunk_count, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (name, len(content), len(chunks), utc_now()),
+                )
+                document_id = int(cursor.lastrowid)
+                for index, chunk in enumerate(chunks, start=1):
+                    chunk_cursor = db.execute(
+                        """
+                        INSERT INTO rag_chunks (document_id, chunk_index, content)
+                        VALUES (?, ?, ?)
+                        """,
+                        (document_id, index, chunk),
+                    )
+                    db.execute(
+                        "INSERT INTO rag_chunks_fts(rowid, content) VALUES (?, ?)",
+                        (chunk_cursor.lastrowid, chunk),
+                    )
+                row = db.execute(
+                    "SELECT * FROM rag_documents WHERE id = ?", (document_id,)
+                ).fetchone()
+                created.append(dict(row))
+        return created
 
     def list_rag_documents(self) -> list[dict[str, Any]]:
         with self.connection() as db:
@@ -731,9 +892,20 @@ class Store:
                 ORDER BY score
                 LIMIT ?
                 """,
-                (match, max(1, min(limit, 12))),
+                (match, max(4, min(limit, 12) * 4)),
             ).fetchall()
-        return [dict(row) for row in rows]
+        candidates = [dict(row) for row in rows]
+        if not candidates:
+            return []
+        requested = max(1, min(limit, 12))
+        best_strength = abs(float(candidates[0]["score"]))
+        if best_strength == 0:
+            return candidates[:requested]
+        return [
+            candidate
+            for candidate in candidates
+            if abs(float(candidate["score"])) >= best_strength * 0.20
+        ][:requested]
 
     def get_settings(self) -> dict[str, str]:
         with self.connection() as db:

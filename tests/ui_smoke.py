@@ -115,7 +115,7 @@ def run() -> None:
             "async () => (await fetch('/api/admin/settings')).json()"
         )
         assert saved_before_submit["model"] == original_model
-        assert saved_before_submit["rag_max_chunks"] == 4
+        assert saved_before_submit["rag_max_chunks"] == 6
         desktop.locator("#settings-dirty-save").click()
         desktop.locator("#settings-dirty-bar").wait_for(state="hidden")
         saved_after_submit = desktop.evaluate(
@@ -240,6 +240,37 @@ def run() -> None:
             path=str(OUTPUT_DIR / "nexus-data-agent-desktop.png"),
             full_page=False,
         )
+        desktop.locator(".admin-card--ldap").scroll_into_view_if_needed()
+        assert desktop.locator("#ldap-user-filter").input_value() == "(uid={username})"
+        assert desktop.locator("#ldap-verify-tls").is_checked()
+        assert desktop.locator("#ldap-enabled").is_checked() is False
+        assert desktop.locator(".admin-card--ldap").evaluate(
+            "element => element.compareDocumentPosition(document.querySelector('.admin-card--data')) & Node.DOCUMENT_POSITION_PRECEDING"
+        )
+        desktop.locator("#ldap-settings-form button[type=submit]").click()
+        desktop.get_by_text("LDAP configuration saved.", exact=True).wait_for(
+            state="visible"
+        )
+        desktop.locator('#ldap-url').fill('ldaps://directory.example.test')
+        desktop.locator('#ldap-base-dn').fill('dc=example,dc=test')
+        desktop.locator('.workspace-language-switcher [data-language="sk"]').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#ldap-url').input_value() == 'ldaps://directory.example.test'
+        desktop.locator('.workspace-language-switcher [data-language="en"]').click()
+        desktop.locator('#ldap-test').click()
+        desktop.get_by_text('LDAP connection is working.', exact=True).wait_for(state='visible')
+        saved_ldap = desktop.evaluate("async () => (await fetch('/api/admin/ldap')).json()")
+        assert saved_ldap['url'] == ''
+        assert saved_ldap['enabled'] is False
+        desktop.locator('#ldap-url').fill('')
+        desktop.locator('#ldap-base-dn').fill('')
+        desktop.locator('#ldap-settings-form button[type=submit]').click()
+        desktop.wait_for_function("() => !state.ldapDirty")
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-ldap-desktop.png"),
+            full_page=False,
+        )
+        desktop.locator(".toast").last.wait_for(state="hidden")
 
         desktop.set_viewport_size({"width": 390, "height": 844})
         desktop.evaluate("document.querySelector('#admin-view').scrollTop = 0")
@@ -380,6 +411,16 @@ def run() -> None:
             path=str(OUTPUT_DIR / "nexus-data-agent-mobile.png"),
             full_page=False,
         )
+        desktop.locator(".admin-card--ldap").scroll_into_view_if_needed()
+        ldap_mobile_layout = desktop.locator(".admin-card--ldap").evaluate(
+            "element => ({left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, viewport: innerWidth})"
+        )
+        assert ldap_mobile_layout["left"] >= 0, ldap_mobile_layout
+        assert ldap_mobile_layout["right"] <= ldap_mobile_layout["viewport"] + 2, ldap_mobile_layout
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-ldap-mobile.png"),
+            full_page=False,
+        )
         current_data_model = desktop.locator("#data-model").input_value()
         desktop.locator("#data-model").fill(f"{current_data_model} ")
         desktop.locator("#settings-dirty-bar").wait_for(state="visible")
@@ -389,12 +430,147 @@ def run() -> None:
         )
         desktop.locator("#settings-dirty-save").click()
         desktop.locator("#settings-dirty-bar").wait_for(state="hidden")
+        desktop.locator(".toast").last.wait_for(state="hidden")
+
+        desktop.locator("#sidebar-open").click()
+        desktop.locator('.nav-item[data-view="chat"]').click()
+        desktop.locator("#data-agent-option").click()
+        desktop.locator("#message-input").fill("Execute DROP TABLE customers")
+        desktop.locator("#composer").evaluate("form => form.requestSubmit()")
+        blocked_reply = desktop.locator(".message--assistant").last
+        blocked_reply.get_by_text("SQL REQUEST BLOCKED", exact=True).wait_for(
+            state="visible"
+        )
+        assert "No table was changed" in blocked_reply.inner_text()
+        assert desktop.locator(".toast.error:visible").count() == 0
+        desktop.screenshot(
+            path=str(OUTPUT_DIR / "nexus-sql-blocked-mobile.png"),
+            full_page=False,
+        )
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('#admin-nav').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#db-kind').select_option('postgresql')
+        desktop.locator('#db-host').fill('draft.company.test')
+        desktop.locator('#db-database').fill('reporting')
+        desktop.locator('#db-username').fill('reader')
+        desktop.locator('.topbar [data-language=sk]').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#db-host').input_value() == 'draft.company.test'
+        assert desktop.locator('#db-save').inner_text() == 'Uložiť a aktivovať'
+        desktop.locator('.topbar [data-language=en]').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#db-connection-form').screenshot(path=str(OUTPUT_DIR / 'nexus-db-connection-mobile.png'))
+        desktop.locator('#db-save').scroll_into_view_if_needed()
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-connection-mobile-actions.png'))
+        width = desktop.locator('#db-connection-form').evaluate('e => [e.clientWidth, e.scrollWidth]')
+        assert width[1] <= width[0] + 2, width
+        desktop.set_viewport_size({'width': 1440, 'height': 1000})
+        desktop.locator('#db-connection-form').screenshot(path=str(OUTPUT_DIR / 'nexus-db-connection-desktop.png'))
+        desktop.locator('#db-kind').select_option('sqlite')
+        desktop.locator('#db-database').fill('ui-reporting.sqlite3')
+        desktop.locator('#db-read-only').check()
+        desktop.locator('#db-egress').check()
+        desktop.locator('#db-test').click()
+        desktop.wait_for_function("() => document.querySelector('#db-test-result').textContent.includes('revenue')")
+        assert desktop.request.get('http://127.0.0.1:8765/api/admin/data/connection').json()['kind'] == 'demo'
+        desktop.locator('#db-tables').fill('revenue')
+        desktop.locator('#db-save').click()
+        desktop.wait_for_function("() => document.querySelector('#db-active-source').textContent.includes('ui-reporting.sqlite3')")
+        desktop.wait_for_function("() => !document.querySelector('#db-save').disabled")
+        assert desktop.request.get('http://127.0.0.1:8765/api/admin/data/connection').json()['kind'] == 'sqlite'
+        desktop.locator('#db-kind').select_option('demo')
+        desktop.locator('#db-save').click()
+        desktop.wait_for_function("() => document.querySelector('#db-active-source').textContent.includes('Synthetic Business')")
+        desktop.wait_for_function("() => !document.querySelector('#db-save').disabled && document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#db-profile-new').click()
+        desktop.locator('#db-profile-name').fill('Reporting A')
+        desktop.locator('#db-kind').select_option('sqlite')
+        desktop.locator('#db-database').fill('ui-reporting.sqlite3')
+        desktop.locator('#db-tables').fill('revenue')
+        desktop.locator('#db-read-only').check()
+        desktop.locator('#db-egress').check()
+        with desktop.expect_response(lambda r: r.url.endswith('/api/admin/data/connections') and r.request.method == 'POST') as saved_profile:
+            desktop.locator('#db-save').click()
+        assert saved_profile.value.status == 201
+        profile_id = saved_profile.value.json()['id']
+        desktop.wait_for_function("() => !document.querySelector('#db-save').disabled && document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#db-profile').input_value() == profile_id
+        desktop.locator('#db-profile').scroll_into_view_if_needed()
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-profiles-desktop.png'))
+        desktop.set_viewport_size({'width': 390, 'height': 844})
+        desktop.wait_for_function("() => document.querySelector('#sidebar-open').getAttribute('aria-expanded') === 'false'")
+        desktop.evaluate("() => Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))")
+        desktop.locator('#db-profile').scroll_into_view_if_needed()
+        width = desktop.locator('#db-connection-form').evaluate('e => [e.clientWidth, e.scrollWidth]')
+        assert width[1] <= width[0] + 2, width
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-profiles-mobile.png'))
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('.nav-item[data-view="chat"]').click()
+        desktop.locator('#data-agent-option').click()
+        desktop.locator('#chat-db-source').select_option(profile_id)
+        desktop.locator('#empty-state').wait_for(state='visible')
+        desktop.locator('#message-input').fill('SELECT COUNT(*) AS row_count FROM revenue')
+        with desktop.expect_response(lambda r: r.url.endswith('/api/conversations') and r.request.method == 'POST') as created_chat:
+            desktop.locator('#composer').evaluate('form => form.requestSubmit()')
+        chat_id = created_chat.value.json()['id']
+        desktop.wait_for_function('() => !document.querySelector("#send-button").disabled')
+        pinned = desktop.request.get(f'http://127.0.0.1:8765/api/conversations/{chat_id}').json()
+        assert pinned['database_connection_id'] == profile_id
+        assert pinned['messages'][-1]['sources'][0]['connection_id'] == profile_id
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-chat-source-mobile.png'))
+        desktop.locator('#chat-db-source').select_option('demo')
+        desktop.locator('#empty-state').wait_for(state='visible')
+        assert desktop.request.get(f'http://127.0.0.1:8765/api/conversations/{chat_id}').json()['database_connection_id'] == profile_id
+
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('#admin-nav').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#infra-kind').select_option('windows_winrm')
+        assert desktop.locator('#infra-port').input_value() == '5986'
+        desktop.locator('#infra-password').wait_for(state='visible')
+        assert desktop.locator('#infra-identity').is_hidden()
+        width = desktop.locator('#infra-connection-form').evaluate('e => [e.clientWidth, e.scrollWidth]')
+        assert width[1] <= width[0] + 2, width
+        desktop.locator('#infra-kind').select_option('windows_ssh')
+        assert desktop.locator('#infra-port').input_value() == '22'
+        desktop.locator('#infra-identity').wait_for(state='visible')
+        assert desktop.locator('#infra-password').is_hidden()
+        desktop.locator('#infra-kind').select_option('linux_ssh')
+        desktop.locator('#infra-profile-name').fill('Edge EU')
+        desktop.locator('#infra-host').fill('edge-eu.internal')
+        desktop.locator('#infra-username').fill('nexus-observer')
+        desktop.locator('#infra-identity').fill('observer-key')
+        with desktop.expect_response(lambda r: r.url.endswith('/api/admin/infra/connections') and r.request.method == 'POST') as saved_server:
+            desktop.locator('#infra-connection-form').evaluate('form => form.requestSubmit()')
+        server_id = saved_server.value.json()['id']
+        desktop.wait_for_function("() => !document.querySelector('#infra-save').disabled && document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#infra-profile').input_value() == server_id
+        desktop.locator('#infra-connection-form').scroll_into_view_if_needed()
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-infra-servers-mobile.png'))
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('.nav-item[data-view="chat"]').click()
+        desktop.locator('#infra-agent-option').click()
+        desktop.wait_for_function("() => document.querySelector('#workspace').dataset.agentMode === 'infra'")
+        desktop.locator('#infra-server-switcher').wait_for(state='visible')
+        desktop.locator('#chat-infra-server').select_option(server_id)
+        desktop.locator('.infra-source-option[data-infra-source="live"]').click()
+        desktop.locator('#message-input').fill('Check this server health')
+        with desktop.expect_response(lambda r: r.url.endswith('/api/conversations') and r.request.method == 'POST') as created_infra:
+            desktop.locator('#composer').evaluate('form => form.requestSubmit()')
+        infra_chat_id = created_infra.value.json()['id']
+        desktop.wait_for_function('() => !document.querySelector("#send-button").disabled')
+        infra_chat = desktop.request.get(f'http://127.0.0.1:8765/api/conversations/{infra_chat_id}').json()
+        assert infra_chat['infra_connection_id'] == server_id
+        infra_source = next(source for source in infra_chat['messages'][-1]['sources'] if source.get('type') == 'infra')
+        assert infra_source['connection_id'] == server_id
+        assert 'edge-eu.internal' in desktop.locator('.source-infra-live').last.inner_text()
         browser.close()
 
         assert not console_errors, f"Browser console errors: {console_errors}"
         print(
             "UI smoke test passed: auth, separate Nexus/Infra/Data histories, "
-            "Infra LIVE/SNAPSHOT, admin, model routing, RAG, reports, "
+            "Infra LIVE/SNAPSHOT, admin, model routing, RAG, reports, SQL safety, "
             "desktop and mobile."
         )
 

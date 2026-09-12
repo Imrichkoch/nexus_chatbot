@@ -13,6 +13,10 @@ NexusChat is designed for a small private deployment. The controls below reduce 
 - Only a SHA-256 token hash is persisted in SQLite.
 - Cookies are HTTP-only, `SameSite=Lax`, and `Secure` in the production configuration.
 - Disabled users cannot create new authenticated sessions.
+- Deactivation and role changes revoke existing sessions permanently.
+- Bcrypt passwords are limited to 72 UTF-8 bytes to prevent silent truncation.
+- Validation responses omit raw input, including passwords and bind secrets.
+- Self-registration can be disabled with `NEXUS_REGISTRATION_ENABLED=0`.
 - Admin self-demotion and self-deactivation are rejected.
 
 ## HTTP protections
@@ -22,6 +26,8 @@ NexusChat is designed for a small private deployment. The controls below reduce 
 - Security headers include CSP, frame denial, MIME sniffing prevention, restricted referrer policy, permissions policy, and cross-origin isolation headers.
 - Authentication, registration, chat, and LIVE Infra paths are rate-limited in memory.
 - API responses and the SPA shell use `Cache-Control: no-store` where sensitive state may be involved.
+- Request bodies are bounded even without nginx; costly chat requests have a
+  separate concurrency cap. Both admission and rate limiting are process-local.
 
 ## Authorization and tenant boundaries
 
@@ -50,7 +56,7 @@ Do not add arbitrary shell execution, user-controlled subprocess arguments, unre
 
 ## SQL report boundary
 
-The Data agent operates on a separate synthetic database. Defense in depth includes:
+The Data agent defaults to a separate synthetic database. Its demo defenses include:
 
 - deterministic fictional seed data;
 - acceptance of only `SELECT` and `WITH` statements;
@@ -61,7 +67,13 @@ The Data agent operates on a separate synthetic database. Defense in depth inclu
 - an unsafe-function denylist;
 - execution time, row, column, and cell-size limits.
 
-Never point `NEXUS_SYNTHETIC_DATABASE` at the application database or a production business database without designing a separate authorization and governance layer.
+Never point `NEXUS_SYNTHETIC_DATABASE` at the application database or an external
+business database: that path is the demo seeding path. Use the explicit A5 external
+connection workflow instead. External sources require admin access, SELECT-only
+credentials, a table/function allowlist, verified TLS by default and approval for
+model-provider data egress. The source password is in a separate mode-0600 file;
+it is not encrypted at rest. See [External reporting databases](DATABASE_CONNECTIONS.md)
+for the per-driver read-only limitations and mandatory database grants.
 
 ## RAG boundary
 
@@ -69,6 +81,9 @@ Never point `NEXUS_SYNTHETIC_DATABASE` at the application database or a producti
 - File names and content are validated server-side.
 - Document size and RAG result counts are bounded.
 - Retrieved text is treated as context, not trusted executable instructions.
+- The knowledge base is shared across users of the deployment. It has no
+  per-document or per-department ACL enforcement; use separate deployments for
+  different confidential corpora until that retrieval policy is implemented.
 
 ## Secrets and repository hygiene
 

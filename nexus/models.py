@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -17,7 +18,7 @@ class OpenRouterModelCatalog:
     def list_models(self) -> list[dict[str, Any]]:
         if self._cache and time.monotonic() - self._cached_at < 300:
             return self._cache
-        if "openrouter.ai" not in self.base_url:
+        if urlparse(self.base_url).hostname != 'openrouter.ai':
             return []
         response = httpx.get(
             f"{self.base_url}/models",

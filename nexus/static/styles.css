@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Archivo Black";
+  src: url("fonts/ArchivoBlack-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+}
+
 :root {
   --ink: #050908;
   --surface: #09110f;
@@ -1170,7 +1178,41 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
 .safety-boundary span, .safety-boundary small { display: block; font-family: var(--mono); }
 .safety-boundary span { color: var(--acid); font-size: 8px; letter-spacing: .12em; }
 .safety-boundary small { margin-top: 6px; color: var(--muted); font-size: 8px; line-height: 1.5; }
-.admin-card--data { grid-column: 1 / -1; }
+.admin-card--infra, .admin-card--data { grid-column: 1 / -1; }
+.admin-card--ldap { grid-column: 1 / -1; }
+.db-connection-form { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); display: grid; gap: 16px; }
+.db-connection-form h4 { margin: 0; font-family: var(--display); font-size: 18px; }
+.db-connection-form select { width: 100%; min-height: 48px; padding: 12px 14px; border: 1px solid var(--line-strong); background: var(--ink); color: var(--paper); font: inherit; }
+.db-profile-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.db-profile-toolbar > label { flex: 1 1 260px; }
+.db-connection-form label.hidden { display: none; }
+.data-source-switcher { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; padding: 12px; border-bottom: 1px solid var(--line); align-items: center; }
+.data-source-switcher.hidden { display: none; }
+.data-source-switcher label { color: var(--amber); font-family: var(--mono); font-size: 10px; }
+.data-source-switcher select { min-width: 0; width: 100%; min-height: 36px; background: var(--ink); color: var(--paper); border: 1px solid var(--line-strong); padding: 6px; }
+.data-source-switcher small { grid-column: 1 / -1; font-size: 10px; color: var(--muted); }
+.db-connection-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; display: grid; gap: 16px; }
+.db-connection-form fieldset.hidden { display: none; }
+.db-connection-form label:not(.check-row) { display: grid; gap: 8px; min-width: 0; }
+.db-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.connection-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.connection-grid .span-2 { grid-column: 1 / -1; }
+.db-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+.db-test-result { padding: 14px; border: 1px solid var(--mint); color: var(--mint); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }
+.db-test-result.error { color: var(--danger); border-color: var(--danger); }
+@media (max-width: 780px) {
+  .db-field-grid { grid-template-columns: 1fr; }
+  .connection-grid { grid-template-columns: 1fr; }
+  .connection-grid .span-2 { grid-column: auto; }
+  .db-actions > button { width: 100%; }
+}
+.ldap-settings-form { margin-top: 18px; display: grid; gap: 18px; }
+.ldap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ldap-grid label > span { display: block; margin-bottom: 7px; }
+.ldap-span-2 { grid-column: 1 / -1; }
+.ldap-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; }
+.ldap-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.ldap-actions .button { min-width: 180px; }
 .data-agent-layout {
   margin-top: 18px;
   display: grid;
@@ -1306,7 +1348,10 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
   .admin-password-control input { grid-column: 1 / -1; }
   .admin-password-control .field-action { border-top: 0; }
   .admin-password-control .field-action:first-of-type { border-left: 1px solid var(--line-strong); }
-  .data-agent-layout, .schema-table-list { grid-template-columns: 1fr; }
+  .data-agent-layout, .schema-table-list, .ldap-grid, .ldap-options { grid-template-columns: 1fr; }
+  .ldap-span-2 { grid-column: auto; }
+  .ldap-actions { align-items: stretch; flex-direction: column-reverse; }
+  .ldap-actions .button { width: 100%; }
   .agent-option { min-width: 0; flex: 1; }
   .agent-option small { display: none; }
   .infra-source-switcher {

@@ -1,10 +1,12 @@
 import json
+import logging
 
 from conftest import login, register
 from nexus.ai import AIUnavailable
 
 
-def test_user_can_create_conversation_and_receive_ai_reply(client, app):
+def test_user_can_create_conversation_and_receive_ai_reply(client, app, caplog):
+    caplog.set_level(logging.INFO, logger="uvicorn.error.nexuschat")
     assert register(client).status_code == 201
     created = client.post("/api/conversations", json={"title": "Prvý chat"})
     assert created.status_code == 201
@@ -19,6 +21,10 @@ def test_user_can_create_conversation_and_receive_ai_reply(client, app):
     body = reply.json()
     assert body["assistant"]["content"] == "Testovacia odpoveď z Nexus AI."
     assert body["assistant"]["model"]
+    assert body["performance"]["provider_ms"] >= 0
+    assert body["performance"]["total_ms"] >= body["performance"]["provider_ms"]
+    assert body["performance"]["rag_chunks"] == 0
+    assert "chat.performance" in caplog.text
     assert app.state.fake_ai.calls[0]["messages"][-1]["content"].startswith("Vysvetli")
 
     detail = client.get(f"/api/conversations/{conversation_id}")
@@ -26,6 +32,39 @@ def test_user_can_create_conversation_and_receive_ai_reply(client, app):
         "user",
         "assistant",
     ]
+
+
+def test_message_stream_returns_deltas_then_persists_exchange(client, app):
+    assert register(client).status_code == 201
+    conversation_id = client.post(
+        "/api/conversations", json={"title": "Streaming"}
+    ).json()["id"]
+
+    def fake_stream_reply(**kwargs):
+        app.state.fake_ai.calls.append(kwargs)
+        yield {"type": "delta", "content": "Streaming "}
+        yield {"type": "delta", "content": "answer."}
+        yield {
+            "type": "completed",
+            "model": kwargs["model"],
+            "input_tokens": 12,
+            "output_tokens": 7,
+        }
+
+    app.state.fake_ai.stream_reply = fake_stream_reply
+    with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages/stream",
+        json={"content": "Stream this answer."},
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert [event["type"] for event in events] == ["delta", "delta", "done"]
+    assert events[-1]["assistant"]["content"] == "Streaming answer."
+    assert events[-1]["performance"]["provider_ms"] >= 0
+    detail = client.get(f"/api/conversations/{conversation_id}").json()
+    assert [message["role"] for message in detail["messages"]] == ["user", "assistant"]
 
 
 def test_users_cannot_access_each_others_conversations(client):
@@ -265,6 +304,8 @@ def test_admin_can_choose_live_infra_source(client, app):
         "type": "infra",
         "mode": "live",
         "generated_at": "2026-07-26T14:30:00+00:00",
+        "connection_id": "local",
+        "server": "Local Nexus server",
     }
 
 
@@ -388,6 +429,38 @@ def test_data_agent_accepts_direct_read_only_sql(client, app):
     assert response.status_code == 201
     assert app.state.fake_ai.sql_calls == []
     assert app.state.fake_ai.report_calls[-1]["sql"].startswith("SELECT status")
+
+
+def test_data_agent_blocks_destructive_sql_with_a_persistent_chat_reply(client, app):
+    assert register(client).status_code == 201
+    conversation_id = client.post(
+        "/api/conversations", json={"title": "SQL safety", "agent_mode": "data"}
+    ).json()["id"]
+
+    with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages/stream",
+        headers={"Accept-Language": "en"},
+        json={
+            "content": "Execute DROP TABLE customers",
+            "agent_mode": "data",
+        },
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert [event["type"] for event in events] == ["delta", "done"]
+    reply = events[-1]["assistant"]["content"]
+    assert "SQL REQUEST BLOCKED" in reply
+    assert "No table was changed" in reply
+    assert "SELECT" in reply
+    assert app.state.fake_ai.sql_calls == []
+    assert app.state.fake_ai.report_calls == []
+    detail = client.get(f"/api/conversations/{conversation_id}").json()
+    assert [message["role"] for message in detail["messages"]] == [
+        "user",
+        "assistant",
+    ]
 
 
 def test_data_agent_cannot_query_nexus_application_tables(client):
