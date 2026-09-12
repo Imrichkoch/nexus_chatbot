@@ -117,6 +117,7 @@ def test_password_is_not_returned_and_cannot_follow_a_changed_host(client, app, 
     'SELECT * FROM revenue /* comment */', 'SELECT set_config(\'x\', \'y\', false)',
     'SELECT * FROM dblink(\'x\', \'SELECT 1\')', 'SELECT public.my_func(amount) FROM revenue',
     'WITH x AS (DELETE FROM revenue RETURNING *) SELECT * FROM x',
+    'SELECT * FROM revenue WHERE EXISTS (SELECT 1 FROM private_notes)',
 ])
 def test_reporting_sql_rejects_mutations_functions_and_unapproved_tables(sql):
     with pytest.raises(QueryRejected):
@@ -142,6 +143,20 @@ def test_reporting_query_allows_compound_date_range_predicate():
 
     assert "issued_on >= '2026-01-01'" in query
     assert "issued_on < '2027-01-01'" in query
+
+
+def test_reporting_query_allows_exists_over_approved_tables():
+    config = ConnectionSettings(kind='sqlite', database='operations.sqlite3',
+                                schema_name='main', tables=['sites', 'incidents'])
+    query = validated_query(
+        "SELECT s.id FROM sites s WHERE EXISTS "
+        "(SELECT 1 FROM incidents i WHERE i.site_id = s.id "
+        "AND i.severity = 'critical')",
+        config,
+    )
+
+    assert 'EXISTS' in query
+    assert '"main".incidents' in query
 
 
 def test_cte_is_resolved_without_allowing_a_hidden_base_table():
