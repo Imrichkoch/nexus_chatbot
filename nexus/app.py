@@ -237,6 +237,8 @@ def create_app(
         local_live_collector=lambda: app.state.live_infra_collector(),
         key_root=Path(os.getenv('NEXUS_INFRA_SSH_KEY_ROOT') or Path(app.state.store.database_path).parent / 'infra-ssh-keys'),
         known_hosts=Path(os.getenv('NEXUS_INFRA_KNOWN_HOSTS') or Path(app.state.store.database_path).parent / 'infra-known-hosts'),
+        secret_root=Path(os.getenv('NEXUS_INFRA_WINRM_SECRET_ROOT') or Path(app.state.store.database_path).parent / 'infra-winrm-secrets'),
+        ca_root=Path(os.getenv('NEXUS_INFRA_CA_ROOT') or Path(app.state.store.database_path).parent / 'infra-ca'),
     )
     app.state.infra_connections.bound_count = app.state.store.infra_connection_usage
     app.state.store.bind_legacy_infra_chats()

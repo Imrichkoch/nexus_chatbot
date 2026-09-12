@@ -366,7 +366,7 @@
             </div>
             <form id="infra-connection-form" class="db-connection-form">
               <h4>Server connections</h4>
-              <p class="card-copy">Managed SSH uses a fixed read-only collector, strict host-key verification and no unrestricted shell.</p>
+              <p class="card-copy">Linux SSH, Windows SSH and Windows WinRM HTTPS use a fixed read-only collector without unrestricted shell access.</p>
               <div class="db-profile-toolbar">
                 <label><span>Saved servers</span><select id="infra-profile"><option value="new">New server</option></select></label>
                 <button id="infra-profile-new" class="button" type="button">New server</button>
@@ -374,11 +374,15 @@
               </div>
               <fieldset id="infra-form-fields">
                 <div class="connection-grid">
+                  <label><span>Connection type</span><select id="infra-kind"><option value="linux_ssh">Linux / SSH</option><option value="windows_ssh">Windows / SSH</option><option value="windows_winrm">Windows / WinRM HTTPS</option></select></label>
                   <label><span>Connection name</span><input id="infra-profile-name" maxlength="80" required></label>
                   <label><span>Hostname / IP</span><input id="infra-host" maxlength="253" autocomplete="off" required></label>
-                  <label><span>SSH port</span><input id="infra-port" type="number" min="1" max="65535" value="22" required></label>
-                  <label><span>SSH username</span><input id="infra-username" maxlength="64" autocomplete="off" required></label>
-                  <label class="span-2"><span>Approved identity filename</span><input id="infra-identity" maxlength="128" placeholder="nexus-observer" autocomplete="off" required><small>Filename inside NEXUS_INFRA_SSH_KEY_ROOT; paths are rejected.</small></label>
+                  <label><span>Port</span><input id="infra-port" type="number" min="1" max="65535" value="22" required></label>
+                  <label><span>Username</span><input id="infra-username" maxlength="192" autocomplete="off" required></label>
+                  <label class="span-2 infra-ssh-field"><span>Approved identity filename</span><input id="infra-identity" maxlength="128" placeholder="nexus-observer" autocomplete="off"><small>Filename inside NEXUS_INFRA_SSH_KEY_ROOT; paths are rejected.</small></label>
+                  <label class="infra-winrm-field hidden"><span>Authentication</span><select id="infra-auth"><option value="ntlm">NTLM</option><option value="basic">Basic over HTTPS</option></select></label>
+                  <label class="infra-winrm-field hidden"><span>WinRM password</span><input id="infra-password" type="password" maxlength="1000" autocomplete="new-password"><small id="infra-password-help">Required for a new connection.</small></label>
+                  <label class="span-2 infra-winrm-field hidden"><span>CA certificate filename (optional)</span><input id="infra-ca-file" maxlength="128" autocomplete="off"><small>Filename inside NEXUS_INFRA_CA_ROOT. Certificate and hostname verification cannot be disabled.</small></label>
                 </div>
               </fieldset>
               <div class="db-actions"><button id="infra-test" class="button" type="button">Test LIVE</button><button id="infra-save" class="button button--primary" type="submit">Save server</button></div>

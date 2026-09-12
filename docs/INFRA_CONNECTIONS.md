@@ -1,6 +1,7 @@
 # Multiple infrastructure servers
 
-Nexus administrators can save up to 20 named SSH server connections in A4 and
+Nexus administrators can save up to 20 named Linux SSH, Windows SSH or Windows
+WinRM HTTPS connections in A4 and
 select one for each Infra chat. The local Nexus host is always available as
 `Local Nexus server`. A chat stores an immutable server ID: changing the selector
 starts a new chat, while old messages remain attached to their original server.
@@ -12,7 +13,7 @@ local snapshot Infra agent is made available to ordinary users. Unknown or
 deleted IDs fail closed and never fall back to the local host. A profile cannot
 be deleted or pointed at a new host, port or SSH user while a chat references it.
 
-## Restricted SSH setup
+## Restricted Linux SSH setup
 
 This integration does not grant the model a shell. Nexus invokes only the fixed
 command `/usr/local/bin/nexus-infra-readonly snapshot|live`; its bounded JSON is
@@ -58,7 +59,37 @@ the profile. Test every target from the Nexus service account, then verify both
 modes in the GUI. Monitor SSH failures and `infra.connection.*`/`infra.live.read`
 audit events without logging key contents or remote stderr.
 
-These reference paths assume the same Nexus layout on managed servers. For other
-Linux applications, package an equivalent fixed JSON collector and preserve the
-same output contract. Windows/WinRM, Kubernetes APIs, cloud control planes and
-arbitrary SSH commands are outside this adapter and need dedicated implementations.
+These reference paths assume the same Nexus layout on managed Linux servers.
+
+## Windows collector
+
+Install `deploy/nexus-infra-readonly.ps1` as
+`C:\ProgramData\NexusChat\nexus-infra-readonly.ps1`, restrict the directory and
+script ACL to administrators plus the dedicated observer account, and sign the
+script with a trusted code-signing certificate. Nexus always invokes PowerShell
+with `-NoProfile`, `-NonInteractive` and `-ExecutionPolicy AllSigned`; neither the
+administrator's question nor model output is placed in the command line.
+
+The collector accepts only `snapshot` or `live`. LIVE returns sanitized OS,
+uptime, CPU, memory, fixed-disk, listening-port, selected-service, recent System
+event-count and reboot-pending data. Snapshot reads only
+`C:\ProgramData\NexusChat\infra-snapshot.json`. Give the observer account only
+the CIM, service, network and Event Log read permissions needed by those checks.
+
+For Windows SSH, install and configure Microsoft OpenSSH Server, enrol the host
+key in `NEXUS_INFRA_KNOWN_HOSTS`, and use a dedicated key from
+`NEXUS_INFRA_SSH_KEY_ROOT`. Restrict that key/account to the signed collector;
+do not grant an administrative interactive shell.
+
+For WinRM, Nexus always constructs an `https://HOST:PORT/wsman` endpoint (port
+5986 by default), validates the certificate and hostname, and supports NTLM or
+Basic authentication over that verified TLS channel. Put a private CA PEM file
+in `NEXUS_INFRA_CA_ROOT` when the
+certificate is not issued by the system trust store. The password is stored in a
+separate mode-`0600` file under `NEXUS_INFRA_WINRM_SECRET_ROOT`; it is omitted
+from `infra-connections.json`, API responses, audit records and logs. Back this
+secret directory up through the organization's encrypted secrets process.
+
+Windows remote profiles remain admin-only and read-only, just like Linux remote
+profiles. Kubernetes APIs, cloud control planes and arbitrary SSH, PowerShell or
+WinRM commands remain outside this adapter.

@@ -25,7 +25,7 @@ permissions and SSO/MFA require additional integration.
 - Admin-configured PostgreSQL, MySQL, MariaDB, SQL Server, Oracle and external SQLite reporting connections; see [connection setup and limits](docs/DATABASE_CONNECTIONS.md)
 - SQLite authorizer, query-only mode, time limit, row limit, and function denylist
 - Admin control plane for creating username/password user or admin accounts, managing models, RAG, agent access policies, and LDAP directory sign-in
-- Multiple named infrastructure server connections, with an immutable server binding per Infra chat
+- Multiple named Linux SSH, Windows SSH and Windows WinRM HTTPS connections, with an immutable server binding per Infra chat
 - Responsive desktop/mobile interface with accessible navigation and status controls
 - Built-in English/Slovak interface switch with browser-local persistence
 - Atomic user/assistant turn persistence and automatic legacy chat migration
@@ -348,6 +348,8 @@ The synthetic reporting database is created and seeded automatically. Infra snap
 | `NEXUS_INFRA_CONNECTION_PATH` | Protected named-server profile JSON | beside the primary database |
 | `NEXUS_INFRA_SSH_KEY_ROOT` | Approved private-key directory | beside the primary database |
 | `NEXUS_INFRA_KNOWN_HOSTS` | Managed SSH host-key file | beside the primary database |
+| `NEXUS_INFRA_WINRM_SECRET_ROOT` | Mode-`0600` WinRM password directory | beside the primary database |
+| `NEXUS_INFRA_CA_ROOT` | Approved private-CA certificate directory for WinRM HTTPS | beside the primary database |
 | `NEXUS_LDAP_SECRET_PATH` | LDAP service-bind password file | `/opt/nexuschat/data/ldap-bind-password` |
 | `NEXUS_DEFAULT_MODEL` | General assistant model | `gpt-5.6-luna` if unset; `.env.example` selects Terra |
 | `NEXUS_INFRA_MODEL` | Infra assistant model | general model |

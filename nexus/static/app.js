@@ -6,13 +6,22 @@ const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
 
 const TRANSLATIONS = {
   infraServers: { en: 'Server connections', sk: 'Pripojenia serverov' },
-  infraServerHelp: { en: 'Managed SSH uses a fixed read-only collector, strict host-key verification and no unrestricted shell.', sk: 'Spravované SSH používa pevný read-only collector, striktné overenie host key a neposkytuje voľný shell.' },
+  infraServerHelp: { en: 'Linux SSH, Windows SSH and Windows WinRM HTTPS use a fixed read-only collector without unrestricted shell access.', sk: 'Linux SSH, Windows SSH a Windows WinRM HTTPS používajú pevný read-only collector bez voľného prístupu k shellu.' },
   infraSavedServers: { en: 'Saved servers', sk: 'Uložené servery' },
   infraNewServer: { en: 'New server', sk: 'Nový server' },
   infraDeleteServer: { en: 'Delete server', sk: 'Vymazať server' },
   infraServerChat: { en: 'Server for this chat', sk: 'Server pre tento chat' },
   infraServerChatHelp: { en: 'Choosing another server starts a new chat. Existing chats keep their server.', sk: 'Výber iného servera otvorí nový chat. Existujúce chaty si ponechajú svoj server.' },
   infraConnectionName: { en: 'Connection name', sk: 'Názov pripojenia' },
+  infraConnectionType: { en: 'Connection type', sk: 'Typ pripojenia' },
+  infraPort: { en: 'Port', sk: 'Port' },
+  infraUser: { en: 'Username', sk: 'Používateľské meno' },
+  infraAuthentication: { en: 'Authentication', sk: 'Autentifikácia' },
+  infraWinrmPassword: { en: 'WinRM password', sk: 'WinRM heslo' },
+  infraPasswordNew: { en: 'Required for a new connection.', sk: 'Povinné pre nové pripojenie.' },
+  infraPasswordKeep: { en: 'Leave blank to keep the saved password.', sk: 'Prázdne pole ponechá uložené heslo.' },
+  infraCaFile: { en: 'CA certificate filename (optional)', sk: 'Názov CA certifikátu (voliteľné)' },
+  infraCaHelp: { en: 'Filename inside NEXUS_INFRA_CA_ROOT. Certificate and hostname verification cannot be disabled.', sk: 'Názov súboru v NEXUS_INFRA_CA_ROOT. Overenie certifikátu a hostname nemožno vypnúť.' },
   infraSshPort: { en: 'SSH port', sk: 'SSH port' },
   infraSshUser: { en: 'SSH username', sk: 'SSH používateľ' },
   infraIdentity: { en: 'Approved identity filename', sk: 'Názov schváleného kľúča' },
@@ -1652,13 +1661,28 @@ function renderInfraProfiles() {
 }
 
 function renderInfraProfile(profile = {}) {
+  $('#infra-kind').value = profile.kind || 'linux_ssh';
   $('#infra-profile-name').value = profile.name || '';
   $('#infra-host').value = profile.host || '';
-  $('#infra-port').value = profile.port || 22;
+  $('#infra-port').value = profile.port || ($('#infra-kind').value === 'windows_winrm' ? 5986 : 22);
   $('#infra-username').value = profile.username || '';
   $('#infra-identity').value = profile.identity_file || '';
+  $('#infra-auth').value = profile.auth || 'ntlm';
+  $('#infra-password').value = '';
+  $('#infra-ca-file').value = profile.ca_file || '';
+  $('#infra-password-help').textContent = t(profile.password_configured ? 'infraPasswordKeep' : 'infraPasswordNew');
   state.infraRevision = profile.revision || 0;
+  infraFieldsVisibility(false);
   show($('#infra-test-result'), false);
+}
+
+function infraFieldsVisibility(resetPort = true) {
+  const winrm = $('#infra-kind').value === 'windows_winrm';
+  $$('.infra-ssh-field').forEach((field) => show(field, !winrm));
+  $$('.infra-winrm-field').forEach((field) => show(field, winrm));
+  $('#infra-identity').required = !winrm;
+  $('#infra-password').required = winrm && state.infraProfileId === 'new';
+  if (resetPort) $('#infra-port').value = winrm ? 5986 : 22;
 }
 
 function chooseInfraProfile(id) {
@@ -1671,9 +1695,11 @@ function chooseInfraProfile(id) {
 }
 
 function infraPayload() {
-  return { name: $('#infra-profile-name').value.trim(), host: $('#infra-host').value.trim(),
+  return { kind: $('#infra-kind').value, name: $('#infra-profile-name').value.trim(), host: $('#infra-host').value.trim(),
     port: Number($('#infra-port').value), username: $('#infra-username').value.trim(),
-    identity_file: $('#infra-identity').value.trim(), revision: state.infraRevision };
+    identity_file: $('#infra-identity').value.trim(), password: $('#infra-password').value,
+    auth: $('#infra-auth').value, ca_file: $('#infra-ca-file').value.trim(),
+    revision: state.infraRevision };
 }
 
 async function infraConnectionAction(save) {
@@ -2331,6 +2357,7 @@ function bindEvents() {
   $('#infra-profile').addEventListener('change', () => chooseInfraProfile($('#infra-profile').value));
   $('#infra-profile-new').addEventListener('click', () => chooseInfraProfile('new'));
   $('#infra-profile-delete').addEventListener('click', deleteInfraProfile);
+  $('#infra-kind').addEventListener('change', () => infraFieldsVisibility(true));
   $('#infra-connection-form').addEventListener('input', (event) => {
     if (event.target.id !== 'infra-profile') state.infraDirty = true;
   });

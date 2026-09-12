@@ -526,6 +526,17 @@ def run() -> None:
         desktop.locator('#sidebar-open').click()
         desktop.locator('#admin-nav').click()
         desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#infra-kind').select_option('windows_winrm')
+        assert desktop.locator('#infra-port').input_value() == '5986'
+        desktop.locator('#infra-password').wait_for(state='visible')
+        assert desktop.locator('#infra-identity').is_hidden()
+        width = desktop.locator('#infra-connection-form').evaluate('e => [e.clientWidth, e.scrollWidth]')
+        assert width[1] <= width[0] + 2, width
+        desktop.locator('#infra-kind').select_option('windows_ssh')
+        assert desktop.locator('#infra-port').input_value() == '22'
+        desktop.locator('#infra-identity').wait_for(state='visible')
+        assert desktop.locator('#infra-password').is_hidden()
+        desktop.locator('#infra-kind').select_option('linux_ssh')
         desktop.locator('#infra-profile-name').fill('Edge EU')
         desktop.locator('#infra-host').fill('edge-eu.internal')
         desktop.locator('#infra-username').fill('nexus-observer')

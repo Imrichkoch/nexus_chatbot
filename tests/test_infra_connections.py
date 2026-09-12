@@ -1,7 +1,12 @@
 from conftest import login
 from types import SimpleNamespace
+import sys
 
-from nexus.infra_connection import InfraConnectionPayload, collect_remote_infra
+from nexus.infra_connection import (
+    InfraConnectionPayload,
+    collect_remote_infra,
+    collect_windows_winrm,
+)
 
 
 def enable_infra(app):
@@ -15,6 +20,15 @@ def profile(name, host, revision=0):
     return {
         'name': name, 'host': host, 'port': 22, 'username': 'nexus-observer',
         'identity_file': 'observer-key', 'revision': revision,
+    }
+
+
+def windows_profile(name='Windows App', host='win-app.internal', revision=0):
+    return {
+        'kind': 'windows_winrm', 'name': name, 'host': host, 'port': 5986,
+        'username': 'CORP\\nexus-observer', 'identity_file': '',
+        'password': 'TemporarySecret!2026', 'auth': 'ntlm',
+        'revision': revision,
     }
 
 
@@ -118,3 +132,87 @@ def test_remote_collector_uses_fixed_strict_ssh_command(monkeypatch, tmp_path):
     assert captured['command'][-3:] == ['nexus-observer@edge.internal', '/usr/local/bin/nexus-infra-readonly', 'snapshot']
     assert 'StrictHostKeyChecking=yes' in captured['command']
     assert 'shell' not in captured['kwargs']
+
+
+def test_windows_ssh_uses_only_fixed_powershell_collector(monkeypatch, tmp_path):
+    key_root = tmp_path / 'keys'
+    key_root.mkdir()
+    (key_root / 'observer-key').write_text('private fixture', encoding='utf-8')
+    known_hosts = tmp_path / 'known_hosts'
+    known_hosts.write_text('host fixture', encoding='utf-8')
+    captured = {}
+
+    def run(command, **kwargs):
+        captured.update(command=command, kwargs=kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"generated_at":"2026-09-12T08:00:00Z"}', stderr='')
+
+    monkeypatch.setattr('nexus.infra_connection.subprocess.run', run)
+    settings = InfraConnectionPayload(**{
+        **profile('Windows SSH', 'win.internal'), 'kind': 'windows_ssh'})
+    collect_remote_infra(settings, 'live', key_root=key_root, known_hosts=known_hosts)
+
+    assert captured['command'][-3] == 'nexus-observer@win.internal'
+    assert captured['command'][-2:] == [
+        'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy AllSigned '
+        '-File C:\\ProgramData\\NexusChat\\nexus-infra-readonly.ps1 -Mode',
+        'live',
+    ]
+    assert 'shell' not in captured['kwargs']
+
+
+def test_winrm_password_is_saved_outside_profile_json(client, app):
+    enable_infra(app)
+    login(client, 'admin@example.test', 'AdminPass!2026')
+    seen = []
+    app.state.infra_connections.remote_collector = lambda settings, mode: (
+        seen.append((settings.kind, settings.password, mode)) or
+        {'generated_at': '2026-09-12T08:00:00+00:00', 'hostname': settings.host}
+    )
+
+    created = client.post('/api/admin/infra/connections', json=windows_profile())
+
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body['kind'] == 'windows_winrm'
+    assert body['password_configured'] is True
+    assert 'password' not in body
+    assert 'TemporarySecret!2026' not in app.state.infra_connections.path.read_text(encoding='utf-8')
+    secret = app.state.infra_connections.secret_root / body['id']
+    assert secret.read_text(encoding='utf-8') == 'TemporarySecret!2026'
+    assert seen == [('windows_winrm', 'TemporarySecret!2026', 'live')]
+
+
+def test_winrm_rejects_missing_password(client, app):
+    login(client, 'admin@example.test', 'AdminPass!2026')
+    app.state.infra_connections.remote_collector = lambda settings, mode: {
+        'generated_at': '2026-09-12T08:00:00+00:00'}
+    missing = windows_profile()
+    missing['password'] = ''
+    assert client.post('/api/admin/infra/connections/test', json=missing).status_code == 422
+
+
+def test_winrm_validates_tls_and_runs_only_fixed_collector(monkeypatch, tmp_path):
+    captured = {}
+
+    class Session:
+        def __init__(self, endpoint, **kwargs):
+            captured.update(endpoint=endpoint, kwargs=kwargs)
+
+        def run_cmd(self, executable, arguments):
+            captured.update(executable=executable, arguments=arguments)
+            return SimpleNamespace(
+                status_code=0,
+                std_out=b'{"generated_at":"2026-09-12T08:00:00Z"}',
+            )
+
+    monkeypatch.setitem(sys.modules, 'winrm', SimpleNamespace(Session=Session))
+    settings = InfraConnectionPayload(**windows_profile())
+
+    result = collect_windows_winrm(settings, 'snapshot', ca_root=tmp_path)
+
+    assert result['generated_at']
+    assert captured['endpoint'] == 'https://win-app.internal:5986/wsman'
+    assert captured['kwargs']['server_cert_validation'] == 'validate'
+    assert captured['executable'] == 'powershell.exe'
+    assert captured['arguments'][-3:] == [
+        'C:\\ProgramData\\NexusChat\\nexus-infra-readonly.ps1', '-Mode', 'snapshot']
