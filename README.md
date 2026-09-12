@@ -186,8 +186,11 @@ The model receives only the serialized sanitized state and explicit instructions
 ### Data agent logic
 
 By default the Data agent uses a separate SQLite database seeded with deterministic
-fictional commerce and support data. Administration A5 can activate an external
-reporting source after connection validation, table selection and explicit
+fictional commerce and support data. Administration A5 can save up to 20 named
+external connections in addition to the default source. Each Data chat keeps an
+immutable database binding; choosing another source starts a new chat, allowing
+different chats to use different databases concurrently (not cross-database JOINs).
+External sources require connection validation, table selection and explicit
 read-only/data-egress approval. Do not configure the Nexus application database as
 a reporting source. See [External reporting databases](docs/DATABASE_CONNECTIONS.md)
 for drivers, credentials, TLS, access restrictions and operational limits.

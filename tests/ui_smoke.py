@@ -482,6 +482,46 @@ def run() -> None:
         desktop.locator('#db-kind').select_option('demo')
         desktop.locator('#db-save').click()
         desktop.wait_for_function("() => document.querySelector('#db-active-source').textContent.includes('Synthetic Business')")
+        desktop.wait_for_function("() => !document.querySelector('#db-save').disabled && document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#db-profile-new').click()
+        desktop.locator('#db-profile-name').fill('Reporting A')
+        desktop.locator('#db-kind').select_option('sqlite')
+        desktop.locator('#db-database').fill('ui-reporting.sqlite3')
+        desktop.locator('#db-tables').fill('revenue')
+        desktop.locator('#db-read-only').check()
+        desktop.locator('#db-egress').check()
+        with desktop.expect_response(lambda r: r.url.endswith('/api/admin/data/connections') and r.request.method == 'POST') as saved_profile:
+            desktop.locator('#db-save').click()
+        assert saved_profile.value.status == 201
+        profile_id = saved_profile.value.json()['id']
+        desktop.wait_for_function("() => !document.querySelector('#db-save').disabled && document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#db-profile').input_value() == profile_id
+        desktop.locator('#db-profile').scroll_into_view_if_needed()
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-profiles-desktop.png'))
+        desktop.set_viewport_size({'width': 390, 'height': 844})
+        desktop.wait_for_function("() => document.querySelector('#sidebar-open').getAttribute('aria-expanded') === 'false'")
+        desktop.evaluate("() => Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))")
+        desktop.locator('#db-profile').scroll_into_view_if_needed()
+        width = desktop.locator('#db-connection-form').evaluate('e => [e.clientWidth, e.scrollWidth]')
+        assert width[1] <= width[0] + 2, width
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-profiles-mobile.png'))
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('.nav-item[data-view="chat"]').click()
+        desktop.locator('#data-agent-option').click()
+        desktop.locator('#chat-db-source').select_option(profile_id)
+        desktop.locator('#empty-state').wait_for(state='visible')
+        desktop.locator('#message-input').fill('SELECT COUNT(*) AS row_count FROM revenue')
+        with desktop.expect_response(lambda r: r.url.endswith('/api/conversations') and r.request.method == 'POST') as created_chat:
+            desktop.locator('#composer').evaluate('form => form.requestSubmit()')
+        chat_id = created_chat.value.json()['id']
+        desktop.wait_for_function('() => !document.querySelector("#send-button").disabled')
+        pinned = desktop.request.get(f'http://127.0.0.1:8765/api/conversations/{chat_id}').json()
+        assert pinned['database_connection_id'] == profile_id
+        assert pinned['messages'][-1]['sources'][0]['connection_id'] == profile_id
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-chat-source-mobile.png'))
+        desktop.locator('#chat-db-source').select_option('demo')
+        desktop.locator('#empty-state').wait_for(state='visible')
+        assert desktop.request.get(f'http://127.0.0.1:8765/api/conversations/{chat_id}').json()['database_connection_id'] == profile_id
         browser.close()
 
         assert not console_errors, f"Browser console errors: {console_errors}"

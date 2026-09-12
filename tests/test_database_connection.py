@@ -71,6 +71,9 @@ def test_external_sqlite_test_activate_report_and_return_to_demo(client, app, sq
         source.execute('SELECT * FROM private_notes')
     assert source.execute('SELECT COUNT(*) AS n FROM revenue')['rows'] == [{'n': 2}]
     restored = client.put('/api/admin/data/connection', json={'kind': 'demo', 'revision': saved.json()['revision']})
+    assert restored.status_code == 409  # A live chat must not silently change databases.
+    client.delete(f'/api/conversations/{chat["id"]}')
+    restored = client.put('/api/admin/data/connection', json={'kind': 'demo', 'revision': saved.json()['revision']})
     assert restored.status_code == 200
     assert client.get('/api/admin/data/schema').json()['fictional'] is True
 
@@ -80,10 +83,9 @@ def test_external_source_is_admin_only_even_if_demo_was_public(client, app, sqli
     assert client.put('/api/admin/data/connection', json=sqlite_source).status_code == 200
     client.post('/api/auth/logout')
     register(client)
-    assert client.get('/api/capabilities').json()['data_agent_available'] is False
-    chat = client.post('/api/conversations', json={'agent_mode': 'data'}).json()
-    response = client.post(f'/api/conversations/{chat["id"]}/messages/stream', json={
-        'content': 'SELECT * FROM revenue', 'agent_mode': 'data'})
+    assert client.get('/api/capabilities').json()['data_agent_available'] is True  # Demo remains available.
+    assert [c['id'] for c in client.get('/api/data/connections').json()['connections']] == ['demo']
+    response = client.post('/api/conversations', json={'agent_mode': 'data', 'database_connection_id': 'legacy'})
     assert response.status_code == 403
     assert not app.state.fake_ai.report_calls
 

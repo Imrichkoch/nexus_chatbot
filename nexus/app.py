@@ -22,7 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from nexus.ai import AIUnavailable, OpenAIProvider
 from nexus.config import RuntimeConfig
 from nexus.database_connection import (
-    ConnectionSettings, ConnectionConfigurationError, ConnectionConflict, DatabaseConnections,
+    ConnectionSettings, ConnectionConfigurationError, ConnectionConflict, DatabaseConnections, DatabaseProfilePayload,
 )
 from nexus.data_agent import (
     DataReportAgent,
@@ -65,6 +65,7 @@ class LoginPayload(BaseModel):
 class ConversationPayload(BaseModel):
     agent_mode: Literal["general", "infra", "data"] = "general"
     title: str = Field(default="Nová konverzácia", min_length=1, max_length=120)
+    database_connection_id: str | None = Field(default=None, min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
 
 
 class MessagePayload(BaseModel):
@@ -241,6 +242,8 @@ def create_app(
         app.state.synthetic_database,
         sqlite_root=Path(os.getenv('NEXUS_EXTERNAL_SQLITE_ROOT') or Path(app.state.store.database_path).parent / 'external-databases'),
     )
+    app.state.database_connections.bound_count = app.state.store.database_connection_usage
+    app.state.store.bind_legacy_database_chats(app.state.database_connections.default_id())
     app.add_middleware(RequestBodyLimit)
     app.add_middleware(ChatAdmissionLimit, maximum=int(os.getenv('NEXUS_MAX_CONCURRENT_CHATS', '4')))
     app.state.ldap_authenticator = ldap_authenticator or LDAPAuthenticator(
@@ -462,8 +465,7 @@ def create_app(
             user["role"] == "admin" or not infra_admin_only
         )
         data_enabled = settings.get("data_agent_enabled", "1") == "1"
-        data_admin_only = (settings.get("data_agent_admin_only", "0") == "1"
-                           or app.state.database_connections.public()['kind'] != 'demo')
+        data_admin_only = settings.get("data_agent_admin_only", "0") == "1"
         return {
             "model": settings["model"],
             "rag_enabled": settings.get("rag_enabled") == "1",
@@ -482,7 +484,10 @@ def create_app(
         agent_mode: Literal["general", "infra", "data"] = "general",
         user: dict[str, Any] = Depends(current_user),
     ):
-        return app.state.store.list_conversations(user["id"], agent_mode)
+        conversations = app.state.store.list_conversations(user["id"], agent_mode)
+        if agent_mode == 'data' and user['role'] != 'admin':
+            conversations = [c for c in conversations if c['database_connection_id'] in (None, 'demo')]
+        return conversations
 
     @app.post("/api/conversations", status_code=201)
     def create_conversation(
@@ -490,9 +495,21 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ):
         title = payload.title.strip() or "Nová konverzácia"
-        return app.state.store.create_conversation(
-            user["id"], title, payload.agent_mode
-        )
+        with app.state.database_connections.lock:
+            connection_id = payload.database_connection_id
+            if payload.agent_mode == 'data':
+                connection_id = connection_id or (app.state.database_connections.default_id() if user['role'] == 'admin' else 'demo')
+                if connection_id != 'demo' and user['role'] != 'admin':
+                    raise HTTPException(status_code=403, detail='External database connections are admin-only.')
+                app.state.database_connections.snapshot(connection_id)
+            elif connection_id is not None:
+                raise HTTPException(status_code=422, detail='Only Data chats can select a database.')
+            return app.state.store.create_conversation(user['id'], title, payload.agent_mode, connection_id)
+
+    @app.get('/api/data/connections')
+    def available_database_connections(user: dict[str, Any] = Depends(current_user)):
+        return {'connections': app.state.database_connections.choices(admin=user['role'] == 'admin'),
+                'default_id': app.state.database_connections.default_id() if user['role'] == 'admin' else 'demo'}
 
     @app.get("/api/conversations/{conversation_id}")
     def get_conversation(
@@ -502,6 +519,8 @@ def create_app(
         conversation = app.state.store.get_conversation(
             conversation_id, user["id"]
         )
+        if conversation and conversation['agent_mode'] == 'data' and conversation['database_connection_id'] not in (None, 'demo') and user['role'] != 'admin':
+            raise HTTPException(status_code=403, detail='External database history is admin-only.')
         if not conversation:
             raise HTTPException(status_code=404, detail="Konverzácia neexistuje.")
         return conversation
@@ -578,7 +597,8 @@ def create_app(
                         detail="Príliš veľa LIVE kontrol. Skús to o chvíľu.",
                     )
         if payload.agent_mode == "data":
-            database_source = app.state.database_connections.snapshot()
+            connection_id = conversation['database_connection_id'] or app.state.database_connections.default_id()
+            database_source = app.state.database_connections.snapshot(connection_id)
             if settings.get("data_agent_enabled", "1") != "1":
                 raise HTTPException(status_code=403, detail="Data Agent je vypnutý.")
             if (
@@ -706,6 +726,8 @@ def create_app(
                         admin_system_prompt=system_prompt,
                     )
                     rag_sources = [result["source"]]
+                    result['source']['connection_id'] = connection_id
+                    result['source']['connection_revision'] = getattr(getattr(database_source, 'settings', None), 'revision', 0)
             else:
                 result = app.state.ai_provider.reply(
                     messages=prompt_messages,
@@ -1285,6 +1307,40 @@ def create_app(
     @app.get('/api/admin/data/connection')
     def admin_database_connection(user: dict[str, Any] = Depends(admin_user)):
         return app.state.database_connections.public()
+
+    def profile_action(user, operation, callback):
+        if not app.state.limiter.check(f'db-profiles:{user["id"]}', 12, 60):
+            raise HTTPException(status_code=429, detail='Too many database configuration operations.')
+        try:
+            result = callback()
+        except QueryRejected as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        app.state.store.audit(user['id'], f'data.connection.{operation}', 'saved-profile')
+        return result
+
+    @app.get('/api/admin/data/connections')
+    def list_database_profiles(user: dict[str, Any] = Depends(admin_user)):
+        return {'connections': app.state.database_connections.profiles()}
+
+    @app.post('/api/admin/data/connections', status_code=201)
+    def create_database_profile(payload: DatabaseProfilePayload, user: dict[str, Any] = Depends(admin_user)):
+        return profile_action(user, 'create', lambda: app.state.database_connections.save_profile(payload))
+
+    @app.post('/api/admin/data/connections/test')
+    def test_new_database_profile(payload: DatabaseProfilePayload, user: dict[str, Any] = Depends(admin_user)):
+        return profile_action(user, 'test', lambda: app.state.database_connections.test_profile(payload))
+
+    @app.put('/api/admin/data/connections/{connection_id}')
+    def update_database_profile(connection_id: str, payload: DatabaseProfilePayload, user: dict[str, Any] = Depends(admin_user)):
+        return profile_action(user, 'update', lambda: app.state.database_connections.save_profile(payload, connection_id))
+
+    @app.post('/api/admin/data/connections/{connection_id}/test')
+    def test_existing_database_profile(connection_id: str, payload: DatabaseProfilePayload, user: dict[str, Any] = Depends(admin_user)):
+        return profile_action(user, 'test', lambda: app.state.database_connections.test_profile(payload, connection_id))
+
+    @app.delete('/api/admin/data/connections/{connection_id}')
+    def delete_database_profile(connection_id: str, revision: int, user: dict[str, Any] = Depends(admin_user)):
+        return profile_action(user, 'delete', lambda: app.state.database_connections.delete_profile(connection_id, revision))
 
     @app.post('/api/admin/data/connection/test')
     def test_database_connection(payload: ConnectionSettings, user: dict[str, Any] = Depends(admin_user)):

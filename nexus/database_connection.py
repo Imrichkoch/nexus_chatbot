@@ -14,6 +14,7 @@ import ssl
 import tempfile
 from threading import RLock
 import time
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,6 +45,10 @@ class ConnectionSettings(BaseModel):
 
 class ConnectionConfigurationError(ValueError):
     pass
+
+
+class DatabaseProfilePayload(ConnectionSettings):
+    name: str = Field(min_length=1, max_length=80)
 
 
 class ConnectionConflict(ConnectionConfigurationError):
@@ -298,6 +303,7 @@ class DatabaseConnections:
     def __init__(self, path: Path, demo, *, sqlite_root: Path):
         self.path, self.demo, self.sqlite_root = path, demo, sqlite_root
         self.lock = RLock()
+        self.bound_count = lambda connection_id: 0
 
     def _read(self):
         if not self.path.exists():
@@ -339,26 +345,129 @@ class DatabaseConnections:
         metadata = self.test(payload)
         with self.lock:
             self.draft(payload)  # Optimistic concurrency check after network work.
+            document = self._read()
+            self._check_endpoint('legacy', ConnectionSettings(**document['settings']), draft)
             draft.revision += 1
             if draft.kind == 'demo':
                 draft = ConnectionSettings(revision=draft.revision)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd, temporary = tempfile.mkstemp(prefix='.db-source-', dir=self.path.parent)
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-                    json.dump({'settings': draft.model_dump(), 'schema': metadata['schema']}, stream)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(temporary, self.path)
-            finally:
-                Path(temporary).unlink(missing_ok=True)
+            document.update(settings=draft.model_dump(), schema=metadata['schema'])
+            self._write(document)
         return self.public()
 
-    def snapshot(self):
+    def _write(self, document):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix='.db-source-', dir=self.path.parent)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                json.dump(document, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+    def default_id(self):
+        return 'demo' if self.public()['kind'] == 'demo' else 'legacy'
+
+    def _check_endpoint(self, connection_id, current, draft):
+        if self.bound_count(connection_id) and any(
+            getattr(current, key) != getattr(draft, key) for key in ('kind', 'host', 'port', 'database', 'schema_name')
+        ):
+            raise ConnectionConflict('Existing chats use this endpoint. Create a new connection for a different database; credentials and table permissions can still be updated.')
+
+    @staticmethod
+    def _public_profile(connection_id, document):
+        settings = ConnectionSettings(**document['settings'])
+        return {**settings.model_dump(exclude={'password'}), 'id': connection_id,
+                'name': document['name'], 'schema': document['schema'], 'password_configured': bool(settings.password)}
+
+    def profiles(self):
+        with self.lock:
+            return [self._public_profile(key, value) for key, value in self._read().get('profiles', {}).items()]
+
+    def choices(self, *, admin):
+        choices = [{'id': 'demo', 'name': 'Demo — Synthetic Business DB', 'kind': 'demo'}]
+        if admin:
+            current = self.public()
+            if current['kind'] != 'demo':
+                choices.append({'id': 'legacy', 'name': f'Default — {current["database"]}', 'kind': current['kind']})
+            choices.extend({'id': p['id'], 'name': p['name'], 'kind': p['kind']} for p in self.profiles())
+        return choices
+
+    def _profile_draft(self, payload, connection_id):
+        document = self._read()
+        profile = document.get('profiles', {}).get(connection_id) if connection_id else None
+        if connection_id and not profile:
+            raise ConnectionConfigurationError('Database connection no longer exists.')
+        current = ConnectionSettings(**profile['settings']) if profile else ConnectionSettings()
+        draft = ConnectionSettings(**payload.model_dump(exclude={'name'}))
+        if draft.revision != current.revision:
+            raise ConnectionConflict('Database connection changed. Reload it before saving.')
+        if not draft.password and all(getattr(draft, key) == getattr(current, key)
+                                     for key in ('kind', 'host', 'port', 'database', 'username')):
+            draft.password = current.password
+        if draft.kind == 'demo':
+            raise ConnectionConfigurationError('Demo is built in. Choose an external database type for a saved connection.')
+        if draft.kind != 'sqlite' and not draft.password:
+            raise ConnectionConfigurationError('Enter a password for this database endpoint.')
+        validate_settings(draft)
+        if connection_id:
+            self._check_endpoint(connection_id, current, draft)
+        return draft
+
+    def test_profile(self, payload, connection_id=None):
+        with self.lock:
+            draft = self._profile_draft(payload, connection_id)
+        return ExternalDatabase(draft, sqlite_root=self.sqlite_root).inspect_schema()
+
+    def save_profile(self, payload, connection_id=None):
+        with self.lock:
+            draft = self._profile_draft(payload, connection_id)
+        validate_settings(draft, activating=True)
+        metadata = ExternalDatabase(draft, sqlite_root=self.sqlite_root).inspect_schema()
+        with self.lock:
+            self._profile_draft(payload, connection_id)
+            document = self._read()
+            profiles = document.setdefault('profiles', {})
+            if not connection_id and len(profiles) >= 20:
+                raise ConnectionConfigurationError('Maximum 20 saved database connections.')
+            connection_id = connection_id or uuid.uuid4().hex
+            if not payload.name.strip():
+                raise ConnectionConfigurationError('A connection name is required.')
+            if any(p['name'].casefold() == payload.name.strip().casefold() for key, p in profiles.items() if key != connection_id):
+                raise ConnectionConflict('A connection with this name already exists.')
+            draft.revision += 1
+            profiles[connection_id] = {'name': payload.name.strip(), 'settings': draft.model_dump(), 'schema': metadata['schema']}
+            self._write(document)
+            return self._public_profile(connection_id, profiles[connection_id])
+
+    def delete_profile(self, connection_id, revision):
         with self.lock:
             document = self._read()
+            profile = document.get('profiles', {}).get(connection_id)
+            if not profile:
+                raise ConnectionConfigurationError('Database connection no longer exists.')
+            if profile['settings']['revision'] != revision or self.bound_count(connection_id):
+                raise ConnectionConflict('Connection changed or is still used by chats. Retain it or remove those chats first.')
+            del document['profiles'][connection_id]
+            self._write(document)
+
+    def snapshot(self, connection_id=None):
+        with self.lock:
+            document = self._read()
+            if connection_id == 'demo':
+                return self.demo
+            if connection_id not in (None, 'legacy'):
+                document = document.get('profiles', {}).get(connection_id)
+                if not document:
+                    raise ConnectionConfigurationError('Database connection is unavailable. No fallback source was used.')
             settings = ConnectionSettings(**document['settings'])
         if settings.kind == 'demo':
+            if connection_id == 'legacy':
+                raise ConnectionConfigurationError('The previous default database is unavailable. Start a new chat to select a source.')
             return self.demo
         validate_settings(settings, activating=True)
-        return ExternalDatabase(settings, document['schema'], sqlite_root=self.sqlite_root)
+        source = ExternalDatabase(settings, document['schema'], sqlite_root=self.sqlite_root)
+        if document.get('name'):
+            source.label = f'{document["name"]} ({source.label})'
+        return source

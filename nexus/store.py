@@ -212,6 +212,8 @@ class Store:
                     "ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'general'"
                 )
                 self._split_legacy_conversations(db)
+            if 'database_connection_id' not in conversation_columns:
+                db.execute('ALTER TABLE conversations ADD COLUMN database_connection_id TEXT')
             db.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_conversations_user_agent
@@ -600,21 +602,30 @@ class Store:
         user_id: int,
         title: str,
         agent_mode: str = "general",
+        database_connection_id: str | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         with self.connection() as db:
             cursor = db.execute(
                 """
                 INSERT INTO conversations
-                    (user_id, title, agent_mode, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                    (user_id, title, agent_mode, created_at, updated_at, database_connection_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, title, agent_mode, now, now),
+                (user_id, title, agent_mode, now, now, database_connection_id),
             )
             row = db.execute(
                 "SELECT * FROM conversations WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
         return dict(row)
+
+    def bind_legacy_database_chats(self, connection_id):
+        with self.connection() as db:
+            db.execute("UPDATE conversations SET database_connection_id = ? WHERE agent_mode = 'data' AND database_connection_id IS NULL", (connection_id,))
+
+    def database_connection_usage(self, connection_id):
+        with self.connection() as db:
+            return db.execute('SELECT count(*) FROM conversations WHERE database_connection_id = ?', (connection_id,)).fetchone()[0]
 
     def list_conversations(
         self,

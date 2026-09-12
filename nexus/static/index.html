@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#07100f">
   <meta name="description" content="NexusChat — súkromný AI pracovný priestor.">
   <title>NexusChat / AI workspace</title>
-    <link rel="stylesheet" href="assets/styles.css?v=20260912a">
-  <script src="assets/app.js?v=20260912a" defer></script>
+    <link rel="stylesheet" href="assets/styles.css?v=20260912b">
+  <script src="assets/app.js?v=20260912b" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
@@ -219,6 +219,11 @@
                 <span>DATA</span><small>SQL · report</small>
               </button>
             </div>
+            <div id="data-source-switcher" class="data-source-switcher hidden">
+              <label for="chat-db-source">Database for this chat</label>
+              <select id="chat-db-source"></select>
+              <small>Choosing another database starts a new chat. Existing chats keep their source.</small>
+            </div>
             <div id="infra-source-switcher" class="infra-source-switcher hidden" role="group" aria-label="Zdroj údajov Infra Agenta">
               <span>ZDROJ INFRA</span>
               <button class="infra-source-option active" type="button" data-infra-source="snapshot" aria-pressed="true">
@@ -392,8 +397,14 @@
             </div>
             <form id="db-connection-form" class="db-connection-form">
               <h4>Database connection</h4>
-              <p class="card-copy">Test without saving. Save validates and activates the source. Existing chats are retained.</p>
+              <p class="card-copy">Save named connections, then choose a database in each Data chat. Testing does not save changes. Existing chats keep their source.</p>
               <fieldset id="db-form-fields">
+                <div class="db-profile-toolbar">
+                  <label><span>Saved connections</span><select id="db-profile"><option value="default">Default connection</option></select></label>
+                  <button id="db-profile-new" type="button" class="button">New connection</button>
+                  <button id="db-profile-delete" type="button" class="button hidden">Delete connection</button>
+                </div>
+                <label id="db-profile-name-row" class="hidden"><span>Connection name</span><input id="db-profile-name" maxlength="80" autocomplete="off"></label>
                 <label><span>Database type</span>
                   <select id="db-kind">
                     <option value="demo">Demo — synthetic SQLite</option>

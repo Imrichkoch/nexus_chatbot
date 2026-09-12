@@ -1,9 +1,11 @@
 # External reporting databases
 
-Administration → **A5 / SQL Report Agent → Database connection** selects one active
-source for the Data chatbot. The built-in fictional SQLite demo remains the
-default. Existing conversations are retained; each new report records its source
-label and executed SQL. Switching sources does not rewrite old reports.
+Administration → **A5 / SQL Report Agent → Database connection** manages the
+default connection and up to 20 additional named connections. The built-in
+fictional SQLite demo remains available independently. Each Data chat is pinned
+to one source; separate chats can query different databases concurrently.
+Selecting another database in the composer starts a new chat draft, without
+changing existing history. Reports record the source ID, revision, label and SQL.
 
 ## Supported connectors
 
@@ -39,7 +41,8 @@ integration coverage. SQL Server and Oracle need target-system acceptance tests.
 2. Ensure the **Nexus server**, not just the browser, can reach the database. Apply
    a database egress allowlist at the network layer. Restrict database ingress to
    the application host and install the corporate certificate chain.
-3. In A5 select the type and enter connection details. Confirm read-only grants
+3. In A5 choose **New connection**, give it a unique name, select the type and
+   enter connection details. Confirm read-only grants
    and organizational approval to send schema/results to the configured AI provider.
 4. **Test and list tables** inspects metadata using a temporary connection. It
    neither saves settings nor sends data to the model. It lists up to 500 eligible
@@ -47,18 +50,35 @@ integration coverage. SQL Server and Oracle need target-system acceptance tests.
 5. Enter up to 50 allowed unqualified table/view names, separated by commas. Simple
    ASCII identifiers are supported; expose views for unusual identifiers. Selected
    metadata is capped at 32,000 characters. Only selected tables enter the prompt.
-6. **Save and activate** repeats connection/metadata validation, then atomically
-   stores configuration. Failed validation leaves the active source unchanged.
-7. Ask for a report in Data chat or enter a SELECT query. The planner uses the
+6. **Save connection** repeats connection/metadata validation, then atomically
+   stores the named profile. Failed validation leaves saved configuration unchanged.
+   The backward-compatible **Default connection** uses **Save and activate**.
+7. Select the saved database in Data chat and ask for a report or enter a SELECT query. The planner uses the
    selected dialect. External reports are not labeled fictional. Verify an approved
    query and a blocked write before onboarding administrators.
-8. Select **Demo** and save to return to fictional data. This also removes the
-   active external credentials from the configuration file (not historical backups).
+8. Select **Demo** in the chat source selector to start a fictional-data chat.
+   This does not remove other saved connections or their credentials.
 
 External sources are **admin-only**, enforced in the API even when the demo Data
-agent was enabled for ordinary users. This prevents a demo-to-production switch
-from exposing real data to every existing account. There is no per-user database
-identity, row-level authorization mapping or multi-source routing in this release.
+agent was enabled for ordinary users. Ordinary users see only the demo source;
+external chat histories are also restricted to administrators. There is no
+per-user database identity, row-level authorization mapping or cross-database JOIN.
+
+## Chat binding and connection lifecycle
+
+`conversations.database_connection_id` stores an immutable source binding. At
+startup, older unbound Data chats are assigned the current default source once.
+An unknown or unavailable source is rejected, never silently replaced with demo.
+Named profiles have stable IDs and independent optimistic revisions. Each request
+captures its own settings/schema snapshot, so concurrent chats cannot overwrite
+one another's selected source. Connections are opened on demand, not kept open
+merely because a profile is saved.
+
+Deleting a profile or changing its endpoint (type, host, port, database or schema)
+is blocked while any chat references it. Create a new profile for another endpoint.
+Credentials and approved table lists can still be updated; new requests use the
+new revision. Removing a connection never deletes a remote database. Existing
+chat content is not rewritten when configuration changes.
 
 ## Credentials, TLS and persistence
 
@@ -70,6 +90,8 @@ Neither API responses nor prompts contain its password. Driver errors are redact
 Blank password retains the saved secret **only for the same endpoint and user**;
 changing host, port, type, database or user requires a fresh password.
 An optimistic revision check prevents one administrator silently overwriting another.
+Named profiles live in the same protected JSON document under `profiles`; updates
+preserve the legacy default settings and all other profiles atomically.
 
 Back up this file separately from SQLite, encrypted and access-restricted. The
 reference systemd release helper includes its default path in release backups.

@@ -5,8 +5,19 @@ const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
 
 const TRANSLATIONS = {
+  dbSavedConnections: { en: 'Saved connections', sk: 'Uložené pripojenia' },
+  dbDefaultConnection: { en: 'Default connection', sk: 'Predvolené pripojenie' },
+  dbNewConnection: { en: 'New connection', sk: 'Nové pripojenie' },
+  dbDeleteConnection: { en: 'Delete connection', sk: 'Vymazať pripojenie' },
+  dbConnectionName: { en: 'Connection name', sk: 'Názov pripojenia' },
+  dbChatSource: { en: 'Database for this chat', sk: 'Databáza pre tento chat' },
+  dbChatSourceHelp: { en: 'Choosing another database starts a new chat. Existing chats keep their source.', sk: 'Výber inej databázy otvorí nový chat. Existujúce chaty si ponechajú svoj zdroj.' },
+  dbUnavailable: { en: 'Unavailable connection', sk: 'Nedostupné pripojenie' },
+  dbDeleteConfirm: { en: 'Delete this saved connection? Connections used by chats cannot be deleted.', sk: 'Vymazať uložené pripojenie? Pripojenie používané v chatoch nemožno vymazať.' },
+  dbProfileSaved: { en: 'Connection saved. Select it in Data chat.', sk: 'Pripojenie uložené. Vyber ho v Data chate.' },
+  dbSaveConnection: { en: 'Save connection', sk: 'Uložiť pripojenie' },
   dbConnection: { en: 'Database connection', sk: 'Pripojenie databázy' },
-  dbHelp: { en: 'Test without saving. Save validates and activates the source. Existing chats are retained.', sk: 'Test neukladá zmeny. Uloženie overí a aktivuje zdroj. Existujúce chaty zostávajú zachované.' },
+  dbHelp: { en: 'Save named connections, then choose a database in each Data chat. Testing does not save changes. Existing chats keep their source.', sk: 'Ulož pomenované pripojenia a vyber databázu v každom Data chate. Test neukladá zmeny. Existujúce chaty si ponechajú svoj zdroj.' },
   dbType: { en: 'Database type', sk: 'Typ databázy' },
   dbDemo: { en: 'Demo — synthetic SQLite', sk: 'Demo — fiktívna SQLite' },
   dbSqlite: { en: 'SQLite — external file', sk: 'SQLite — externý súbor' },
@@ -235,6 +246,11 @@ const state = {
   dbDirty: false,
   dbBusy: false,
   dbRevision: 0,
+  dbProfileId: 'default',
+  dbProfiles: [],
+  dbDefaultSettings: null,
+  databaseChoices: [],
+  selectedDatabaseId: null,
   ragUploading: false,
   ragMaxDocuments: 1000,
 };
@@ -521,6 +537,8 @@ function setLanguage(language, persist = true) {
     } catch {}
   }
   applyStaticTranslations();
+  databaseFieldsVisibility();
+  renderDatabaseProfiles();
   $$('[data-language]').forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.language === state.language));
   });
@@ -739,6 +757,10 @@ async function enterWorkspace() {
 async function loadCapabilities() {
   try {
     state.capabilities = await api("/capabilities");
+    const sources = await api('/data/connections');
+    state.databaseChoices = sources.connections;
+    state.selectedDatabaseId ||= sources.default_id;
+    renderDatabaseChooser();
     $("#sidebar-model").textContent = state.capabilities.model;
     show($("#infra-agent-option"), state.capabilities.infra_agent_available);
     show($("#data-agent-option"), state.capabilities.data_agent_available);
@@ -762,6 +784,7 @@ function conversationsFor(mode = state.agentMode) {
 }
 
 function updateAgentWorkspaceUI(mode) {
+  renderDatabaseChooser();
   const baseWorkspace = agentWorkspaces()[mode];
   const workspace = mode === "infra" && state.infraSource === "live"
     ? { ...baseWorkspace, ...liveInfraUi() }
@@ -889,7 +912,9 @@ async function createConversation(
   const mode = state.agentMode;
   const conversation = await api("/conversations", {
     method: "POST",
-    body: JSON.stringify({ title, agent_mode: mode }),
+    body: JSON.stringify({ title, agent_mode: mode,
+      ...(mode === 'data' ? { database_connection_id: state.selectedDatabaseId } : {}),
+    }),
   });
   state.conversationsByAgent[mode].unshift({
     ...conversation,
@@ -928,6 +953,7 @@ async function openConversation(id) {
 }
 
 function renderConversation() {
+  renderDatabaseChooser();
   const active = state.activeConversation;
   show($("#empty-state"), !active);
   show($("#conversation-stage"), Boolean(active));
@@ -1288,6 +1314,7 @@ async function sendMessage(content) {
     toast(error.message, "error");
   } finally {
     state.sending = false;
+    renderDatabaseChooser();
     $("#send-button").disabled = false;
     $("#composer").setAttribute("aria-busy", "false");
     $("#message-input").focus();
@@ -1337,7 +1364,7 @@ async function loadAdmin() {
   if (state.user?.role !== "admin") return;
   $("#admin-view").setAttribute("aria-busy", "true");
   try {
-    const [overview, users, settings, rag, infra, dataSchema, ldap, databaseConnection] = await Promise.all([
+    const [overview, users, settings, rag, infra, dataSchema, ldap, databaseConnection, profiles] = await Promise.all([
       api("/admin/overview"),
       api("/admin/users"),
       api("/admin/settings"),
@@ -1346,6 +1373,7 @@ async function loadAdmin() {
       api("/admin/data/schema"),
       api("/admin/ldap"),
       api('/admin/data/connection'),
+      api('/admin/data/connections'),
     ]);
     $("#metric-users").textContent = overview.users_total;
     $("#metric-active").textContent = overview.users_active;
@@ -1377,8 +1405,19 @@ async function loadAdmin() {
     renderInfraStatus(infra);
     renderDataSchema(dataSchema.schema);
     if (!state.ldapDirty && !state.ldapBusy) renderLdapSettings(ldap);
-    if (!state.dbDirty && !state.dbBusy) renderDatabaseSettings(databaseConnection);
+    state.dbDefaultSettings = { ...databaseConnection, schema: dataSchema.schema, name: dataSchema.database };
+    state.dbProfiles = profiles.connections;
+    if (!state.dbDirty && !state.dbBusy) {
+      renderDatabaseProfiles();
+      const selected = state.dbProfiles.find((p) => p.id === state.dbProfileId);
+      if (state.dbProfileId !== 'new') renderDatabaseSettings(selected || databaseConnection);
+    }
     $('#db-active-source').textContent = `${dataSchema.database} / READ-ONLY`;
+    const selectedProfile = state.dbProfiles.find((p) => p.id === state.dbProfileId);
+    if (selectedProfile) {
+      renderDataSchema(selectedProfile.schema);
+      $('#db-active-source').textContent = `${selectedProfile.name} / READ-ONLY`;
+    }
     loadModelCatalog();
   } catch (error) {
     toast(error.message, "error");
@@ -1536,9 +1575,98 @@ async function uploadRagDocuments(fileList) {
   }
 }
 
+function renderDatabaseChooser() {
+  const control = $('#chat-db-source');
+  show($('#data-source-switcher'), state.agentMode === 'data');
+  if (state.agentMode !== 'data') return;
+  const selected = state.activeConversation?.database_connection_id || state.selectedDatabaseId || 'demo';
+  state.selectedDatabaseId = selected;
+  control.replaceChildren();
+  for (const connection of state.databaseChoices) {
+    control.add(new Option(connection.name, connection.id));
+  }
+  if (!state.databaseChoices.some((c) => c.id === selected)) {
+    control.add(new Option(t('dbUnavailable'), selected));
+  }
+  control.value = selected;
+  control.disabled = state.sending;
+}
+
+function selectChatDatabase() {
+  if (state.sending) { renderDatabaseChooser(); return; }
+  const selected = $('#chat-db-source').value;
+  if (selected === state.selectedDatabaseId) return;
+  if ($('#message-input').value.trim() && !window.confirm(t('discardChangesPrompt'))) {
+    renderDatabaseChooser(); return;
+  }
+  $('#message-input').value = '';
+  state.selectedDatabaseId = selected;
+  state.activeConversationByAgent.data = null;
+  if (state.agentMode === 'data') state.activeConversation = null;
+  renderConversation();
+  renderConversationList();
+}
+
+function renderDatabaseProfiles() {
+  const control = $('#db-profile');
+  control.replaceChildren(new Option(t('dbDefaultConnection'), 'default'));
+  for (const profile of state.dbProfiles) control.add(new Option(profile.name, profile.id));
+  if (state.dbProfileId === 'new') control.add(new Option(t('dbNewConnection'), 'new'));
+  if (!['default', 'new'].includes(state.dbProfileId) && !state.dbProfiles.some((p) => p.id === state.dbProfileId)) state.dbProfileId = 'default';
+  control.value = state.dbProfileId;
+}
+
+function chooseDatabaseProfile(id) {
+  if (state.dbBusy) return;
+  if (state.dbDirty && !window.confirm(t('discardChangesPrompt'))) { renderDatabaseProfiles(); return; }
+  state.dbProfileId = id;
+  state.dbDirty = id === 'new';
+  renderDatabaseProfiles();
+  const profile = id === 'new' ? {
+    kind: 'postgresql', host: '', port: 5432, database: '', username: '', schema_name: 'public',
+    tables: [], tls: true, revision: 0, read_only_confirmed: false, egress_confirmed: false, name: '',
+  } : state.dbProfiles.find((p) => p.id === id) || state.dbDefaultSettings;
+  if (profile) renderDatabaseSettings(profile);
+  if (profile?.schema) {
+    renderDataSchema(profile.schema);
+    $('#db-active-source').textContent = `${profile.name} / READ-ONLY`;
+  } else {
+    renderDataSchema('');
+    $('#db-active-source').textContent = t('dbNewConnection');
+  }
+  show($('#db-test-result'), false);
+}
+
+async function deleteDatabaseProfile() {
+  if (state.dbBusy || ['default', 'new'].includes(state.dbProfileId)) return;
+  if (!window.confirm(t('dbDeleteConfirm'))) return;
+  state.dbBusy = true;
+  $('#db-form-fields').disabled = true;
+  $('#db-test').disabled = $('#db-save').disabled = true;
+  try {
+    await api(`/admin/data/connections/${state.dbProfileId}?revision=${state.dbRevision}`, { method: 'DELETE' });
+    state.dbProfileId = 'default';
+    state.dbDirty = false;
+    await loadCapabilities();
+  } catch (error) { toast(error.message, 'error'); }
+  finally {
+    state.dbBusy = false;
+    $('#db-form-fields').disabled = false;
+    $('#db-test').disabled = $('#db-save').disabled = false;
+    await loadAdmin();
+  }
+}
+
 function databaseFieldsVisibility() {
   const kind = $('#db-kind').value;
   const external = kind !== 'demo';
+  const named = state.dbProfileId !== 'default';
+  show($('#db-profile-name-row'), named);
+  $('#db-profile-name').required = named;
+  $('#db-profile-name').disabled = !named;
+  show($('#db-profile-delete'), named && state.dbProfileId !== 'new');
+  $('#db-kind option[value="demo"]').disabled = named;
+  $('#db-save').textContent = t(named ? 'dbSaveConnection' : 'dbSave');
   show($('#db-external-fields'), external);
   $('#db-external-fields').disabled = !external;
   $$('[data-db-network]').forEach((element) => {
@@ -1551,6 +1679,7 @@ function databaseFieldsVisibility() {
 }
 
 function renderDatabaseSettings(settings) {
+  $('#db-profile-name').value = settings.name || '';
   state.dbRevision = settings.revision;
   $('#db-kind').value = settings.kind;
   $('#db-host').value = settings.host;
@@ -1580,6 +1709,10 @@ function databasePayload() {
 async function databaseAction(save) {
   if (state.dbBusy || !$('#db-connection-form').reportValidity()) return;
   const payload = databasePayload();
+  const profileId = state.dbProfileId;
+  const named = profileId !== 'default';
+  if (named) payload.name = $('#db-profile-name').value.trim();
+  const base = named ? `/admin/data/connections${profileId === 'new' ? '' : '/' + profileId}` : '/admin/data/connection';
   state.dbBusy = true;
   $('#db-form-fields').disabled = true;
   $('#db-test').disabled = true;
@@ -1589,13 +1722,14 @@ async function databaseAction(save) {
   output.classList.remove('error');
   show(output);
   try {
-    const result = await api(save ? '/admin/data/connection' : '/admin/data/connection/test', {
-      method: save ? 'PUT' : 'POST', body: JSON.stringify(payload),
+    const result = await api(save ? base : `${base}/test`, {
+      method: save && profileId !== 'new' ? 'PUT' : 'POST', body: JSON.stringify(payload),
     });
     if (save) {
       state.dbDirty = false;
+      if (named) state.dbProfileId = result.id;
       renderDatabaseSettings(result);
-      output.textContent = t('dbSaved');
+      output.textContent = t(named ? 'dbProfileSaved' : 'dbSaved');
       await loadCapabilities();
       await loadAdmin();
     } else {
@@ -1610,6 +1744,7 @@ async function databaseAction(save) {
     $('#db-test').disabled = false;
     $('#db-save').disabled = false;
     databaseFieldsVisibility();
+    if (save && !state.dbDirty) await loadAdmin();
   }
 }
 
@@ -1911,6 +2046,9 @@ async function discardSettings() {
 async function logout(notify = true) {
   if (notify && (state.settingsDirty || state.ldapDirty || state.dbDirty) && !window.confirm(t("discardChangesPrompt"))) return;
   state.dbDirty = false;
+  state.dbProfileId = 'default';
+  state.databaseChoices = [];
+  state.selectedDatabaseId = null;
   $('#db-password').value = '';
   state.ldapDirty = false;
   $('#ldap-bind-password').value = '';
@@ -2043,7 +2181,12 @@ function bindEvents() {
   $("#ldap-test").addEventListener("click", testLdapConnection);
   $('#db-connection-form').addEventListener('submit', (event) => { event.preventDefault(); databaseAction(true); });
   $('#db-test').addEventListener('click', () => databaseAction(false));
-  $('#db-connection-form').addEventListener('input', () => {
+  $('#chat-db-source').addEventListener('change', selectChatDatabase);
+  $('#db-profile').addEventListener('change', () => chooseDatabaseProfile($('#db-profile').value));
+  $('#db-profile-new').addEventListener('click', () => chooseDatabaseProfile('new'));
+  $('#db-profile-delete').addEventListener('click', deleteDatabaseProfile);
+  $('#db-connection-form').addEventListener('input', (event) => {
+    if (event.target.id === 'db-profile') return;
     state.dbDirty = true;
     show($('#db-test-result'), false);
   });
