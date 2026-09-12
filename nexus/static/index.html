@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#07100f">
   <meta name="description" content="NexusChat — súkromný AI pracovný priestor.">
   <title>NexusChat / AI workspace</title>
-    <link rel="stylesheet" href="assets/styles.css?v=20260912b">
-  <script src="assets/app.js?v=20260912b" defer></script>
+    <link rel="stylesheet" href="assets/styles.css?v=20260912c">
+  <script src="assets/app.js?v=20260912c" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
@@ -233,6 +233,11 @@
                 <strong><i></i> LIVE</strong><small>teraz · admin</small>
               </button>
             </div>
+            <div id="infra-server-switcher" class="data-source-switcher hidden">
+              <label for="chat-infra-server">Server for this chat</label>
+              <select id="chat-infra-server"></select>
+              <small>Choosing another server starts a new chat. Existing chats keep their server.</small>
+            </div>
             <textarea id="message-input" name="message" rows="1" maxlength="12000" placeholder="Napíš správu pre Nexus…" aria-label="Správa" autocomplete="off"></textarea>
             <div class="composer-footer">
               <span><kbd>Enter</kbd> odoslať · <kbd>Shift</kbd> + <kbd>Enter</kbd> nový riadok</span>
@@ -359,6 +364,26 @@
               <span>READ-ONLY BOUNDARY</span>
               <small>CPU · RAM · disk · porty · TLS · health · povolené systemd služby</small>
             </div>
+            <form id="infra-connection-form" class="db-connection-form">
+              <h4>Server connections</h4>
+              <p class="card-copy">Managed SSH uses a fixed read-only collector, strict host-key verification and no unrestricted shell.</p>
+              <div class="db-profile-toolbar">
+                <label><span>Saved servers</span><select id="infra-profile"><option value="new">New server</option></select></label>
+                <button id="infra-profile-new" class="button" type="button">New server</button>
+                <button id="infra-profile-delete" class="button button--danger hidden" type="button">Delete server</button>
+              </div>
+              <fieldset id="infra-form-fields">
+                <div class="connection-grid">
+                  <label><span>Connection name</span><input id="infra-profile-name" maxlength="80" required></label>
+                  <label><span>Hostname / IP</span><input id="infra-host" maxlength="253" autocomplete="off" required></label>
+                  <label><span>SSH port</span><input id="infra-port" type="number" min="1" max="65535" value="22" required></label>
+                  <label><span>SSH username</span><input id="infra-username" maxlength="64" autocomplete="off" required></label>
+                  <label class="span-2"><span>Approved identity filename</span><input id="infra-identity" maxlength="128" placeholder="nexus-observer" autocomplete="off" required><small>Filename inside NEXUS_INFRA_SSH_KEY_ROOT; paths are rejected.</small></label>
+                </div>
+              </fieldset>
+              <div class="db-actions"><button id="infra-test" class="button" type="button">Test LIVE</button><button id="infra-save" class="button button--primary" type="submit">Save server</button></div>
+              <pre id="infra-test-result" class="db-test-result hidden"></pre>
+            </form>
           </article>
 
           <article class="admin-card admin-card--data">

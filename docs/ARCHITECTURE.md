@@ -10,7 +10,7 @@ The service has five principal boundaries:
 2. **Application API** — validation, authorization, rate limiting, agent routing, and atomic persistence.
 3. **Primary SQLite database** — accounts, sessions, conversations, messages, settings, audit events, and RAG documents.
 4. **Reporting source** — deterministic fictional SQLite by default; optionally an admin-configured external SQL database. Each request takes an immutable source snapshot; external credentials stay outside prompts and the primary SQLite database. See [connector architecture and limits](DATABASE_CONNECTIONS.md).
-5. **Infrastructure data plane** — a persisted sanitized snapshot and an admin-only bounded LIVE collector.
+5. **Infrastructure data plane** — local or named restricted-SSH servers, each exposing a persisted sanitized snapshot and an admin-only bounded LIVE collector.
 
 ## 2. Request flow
 
@@ -33,12 +33,17 @@ The application does not impose a global document-count ceiling.
 
 ### Infra assistant
 
-Infra uses the same isolated `infra` conversation history with one of two data sources:
+Each Infra conversation is immutably pinned by `infra_connection_id` to the local
+host or one named SSH profile. Independently, it uses one of two data sources:
 
 - **Snapshot** reads one sanitized JSON file generated approximately every minute by a hardened systemd one-shot service.
-- **LIVE** invokes `collect_infra_state()` at request time. The function takes no user-provided command and executes only fixed read-only checks.
+- **LIVE** invokes `collect_infra_state()` locally or a fixed remote collector at request time. No user-provided command is accepted.
 
-LIVE access is enforced server-side: the Infra agent must be enabled, LIVE must be enabled, and the authenticated user must have the `admin` role. Each successful collection writes an `infra.live.read` audit event. Source mode and collection time are saved with the assistant message.
+Remote SSH uses strict host-key verification, an approved key directory and a
+forced command. Remote profiles and histories are always admin-only. LIVE access
+is enforced server-side: the Infra agent and LIVE must be enabled, and the user
+must be an admin. Successful collection writes an audit event. Server ID/label,
+source mode and collection time are saved with the assistant message.
 
 ### Data report agent
 
@@ -63,7 +68,7 @@ Older databases are migrated automatically. If one legacy conversation contains 
 | --- | --- |
 | `users` | E-mail or admin-created username identity, bcrypt hash, role, activation state |
 | `sessions` | SHA-256 hashes of opaque session tokens and expiry |
-| `conversations` | Owner, workspace mode, title, timestamps |
+| `conversations` | Owner, workspace mode, immutable Data DB / Infra server bindings, title, timestamps |
 | `messages` | Role, content, model, usage, structured source metadata |
 | `settings` | Model routing, prompts, RAG and agent policy flags |
 | `audit_log` | Administrative changes and LIVE Infra reads |
@@ -83,7 +88,7 @@ With no `OPENAI_BASE_URL`, it uses the OpenAI Responses API with `store=False`. 
 
 ## 6. Frontend state model
 
-The browser maintains separate conversation lists and active conversation objects for all three agents. Switching workspaces changes history, active chat, empty-state prompts, labels, and composer behavior. Infra additionally maintains a `snapshot` or `live` source selector.
+The browser maintains separate conversation lists and active conversation objects for all three agents. Switching workspaces changes history, active chat, empty-state prompts, labels, and composer behavior. Infra additionally maintains independent server and `snapshot`/`live` selectors; changing the server creates a new chat draft.
 
 The interface has an English-first client-side translation catalog with Slovak as the second language. The selected locale is stored under `nexus_language` in browser local storage, applied before authentication state is resolved, and used for static labels, dynamic notifications, assistant workspace prompts, and date formatting. Language selection does not alter account or conversation data.
 

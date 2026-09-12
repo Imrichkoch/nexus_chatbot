@@ -88,7 +88,7 @@ def main():
                     if copied.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                         raise RuntimeError('Backup integrity check failed')
                 os.chmod(backup / filename, 0o600)
-        for secret_name in ('ldap-bind-password', 'database-connection.json'):
+        for secret_name in ('ldap-bind-password', 'database-connection.json', 'infra-connections.json', 'infra-known-hosts'):
             secret = root / 'data' / secret_name
             if secret.exists():
                 shutil.copy2(secret, backup / secret.name)

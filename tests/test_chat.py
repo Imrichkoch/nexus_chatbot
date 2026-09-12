@@ -304,6 +304,8 @@ def test_admin_can_choose_live_infra_source(client, app):
         "type": "infra",
         "mode": "live",
         "generated_at": "2026-07-26T14:30:00+00:00",
+        "connection_id": "local",
+        "server": "Local Nexus server",
     }
 
 

@@ -522,6 +522,38 @@ def run() -> None:
         desktop.locator('#chat-db-source').select_option('demo')
         desktop.locator('#empty-state').wait_for(state='visible')
         assert desktop.request.get(f'http://127.0.0.1:8765/api/conversations/{chat_id}').json()['database_connection_id'] == profile_id
+
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('#admin-nav').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#infra-profile-name').fill('Edge EU')
+        desktop.locator('#infra-host').fill('edge-eu.internal')
+        desktop.locator('#infra-username').fill('nexus-observer')
+        desktop.locator('#infra-identity').fill('observer-key')
+        with desktop.expect_response(lambda r: r.url.endswith('/api/admin/infra/connections') and r.request.method == 'POST') as saved_server:
+            desktop.locator('#infra-connection-form').evaluate('form => form.requestSubmit()')
+        server_id = saved_server.value.json()['id']
+        desktop.wait_for_function("() => !document.querySelector('#infra-save').disabled && document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#infra-profile').input_value() == server_id
+        desktop.locator('#infra-connection-form').scroll_into_view_if_needed()
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-infra-servers-mobile.png'))
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('.nav-item[data-view="chat"]').click()
+        desktop.locator('#infra-agent-option').click()
+        desktop.wait_for_function("() => document.querySelector('#workspace').dataset.agentMode === 'infra'")
+        desktop.locator('#infra-server-switcher').wait_for(state='visible')
+        desktop.locator('#chat-infra-server').select_option(server_id)
+        desktop.locator('.infra-source-option[data-infra-source="live"]').click()
+        desktop.locator('#message-input').fill('Check this server health')
+        with desktop.expect_response(lambda r: r.url.endswith('/api/conversations') and r.request.method == 'POST') as created_infra:
+            desktop.locator('#composer').evaluate('form => form.requestSubmit()')
+        infra_chat_id = created_infra.value.json()['id']
+        desktop.wait_for_function('() => !document.querySelector("#send-button").disabled')
+        infra_chat = desktop.request.get(f'http://127.0.0.1:8765/api/conversations/{infra_chat_id}').json()
+        assert infra_chat['infra_connection_id'] == server_id
+        infra_source = next(source for source in infra_chat['messages'][-1]['sources'] if source.get('type') == 'infra')
+        assert infra_source['connection_id'] == server_id
+        assert 'edge-eu.internal' in desktop.locator('.source-infra-live').last.inner_text()
         browser.close()
 
         assert not console_errors, f"Browser console errors: {console_errors}"

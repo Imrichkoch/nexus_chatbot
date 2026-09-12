@@ -24,6 +24,9 @@ from nexus.config import RuntimeConfig
 from nexus.database_connection import (
     ConnectionSettings, ConnectionConfigurationError, ConnectionConflict, DatabaseConnections, DatabaseProfilePayload,
 )
+from nexus.infra_connection import (
+    InfraConnectionPayload, InfraConnectionError, InfraConnectionConflict, InfraConnections,
+)
 from nexus.data_agent import (
     DataReportAgent,
     QueryRejected,
@@ -66,6 +69,7 @@ class ConversationPayload(BaseModel):
     agent_mode: Literal["general", "infra", "data"] = "general"
     title: str = Field(default="Nová konverzácia", min_length=1, max_length=120)
     database_connection_id: str | None = Field(default=None, min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    infra_connection_id: str | None = Field(default=None, min_length=1, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
 
 
 class MessagePayload(BaseModel):
@@ -227,6 +231,15 @@ def create_app(
         "NEXUS_INFRA_SNAPSHOT", "/opt/nexuschat/data/infra-snapshot.json"
     )
     app.state.live_infra_collector = live_infra_collector or collect_infra_state
+    app.state.infra_connections = InfraConnections(
+        Path(os.getenv('NEXUS_INFRA_CONNECTION_PATH') or Path(app.state.store.database_path).parent / 'infra-connections.json'),
+        local_snapshot_path=app.state.infra_snapshot_path,
+        local_live_collector=lambda: app.state.live_infra_collector(),
+        key_root=Path(os.getenv('NEXUS_INFRA_SSH_KEY_ROOT') or Path(app.state.store.database_path).parent / 'infra-ssh-keys'),
+        known_hosts=Path(os.getenv('NEXUS_INFRA_KNOWN_HOSTS') or Path(app.state.store.database_path).parent / 'infra-known-hosts'),
+    )
+    app.state.infra_connections.bound_count = app.state.store.infra_connection_usage
+    app.state.store.bind_legacy_infra_chats()
     app.state.synthetic_database = SyntheticDatabase(
         synthetic_database_path
         or os.getenv(
@@ -268,6 +281,10 @@ def create_app(
     @app.exception_handler(ConnectionConfigurationError)
     async def database_configuration_error(request, error):
         return JSONResponse({'detail': str(error)}, status_code=409 if isinstance(error, ConnectionConflict) else 422)
+
+    @app.exception_handler(InfraConnectionError)
+    async def infra_connection_error(request, error):
+        return JSONResponse({'detail': str(error)}, status_code=409 if isinstance(error, InfraConnectionConflict) else 422)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, error):
@@ -487,6 +504,8 @@ def create_app(
         conversations = app.state.store.list_conversations(user["id"], agent_mode)
         if agent_mode == 'data' and user['role'] != 'admin':
             conversations = [c for c in conversations if c['database_connection_id'] in (None, 'demo')]
+        if agent_mode == 'infra' and user['role'] != 'admin':
+            conversations = [c for c in conversations if c['infra_connection_id'] in (None, 'local')]
         return conversations
 
     @app.post("/api/conversations", status_code=201)
@@ -495,21 +514,36 @@ def create_app(
         user: dict[str, Any] = Depends(current_user),
     ):
         title = payload.title.strip() or "Nová konverzácia"
-        with app.state.database_connections.lock:
-            connection_id = payload.database_connection_id
-            if payload.agent_mode == 'data':
+        connection_id = payload.database_connection_id
+        infra_connection_id = payload.infra_connection_id
+        if payload.agent_mode == 'data':
+            with app.state.database_connections.lock:
                 connection_id = connection_id or (app.state.database_connections.default_id() if user['role'] == 'admin' else 'demo')
                 if connection_id != 'demo' and user['role'] != 'admin':
                     raise HTTPException(status_code=403, detail='External database connections are admin-only.')
                 app.state.database_connections.snapshot(connection_id)
-            elif connection_id is not None:
-                raise HTTPException(status_code=422, detail='Only Data chats can select a database.')
-            return app.state.store.create_conversation(user['id'], title, payload.agent_mode, connection_id)
+        elif connection_id is not None:
+            raise HTTPException(status_code=422, detail='Only Data chats can select a database.')
+        if payload.agent_mode == 'infra':
+            with app.state.infra_connections.lock:
+                infra_connection_id = infra_connection_id or 'local'
+                if infra_connection_id != 'local' and user['role'] != 'admin':
+                    raise HTTPException(status_code=403, detail='External infrastructure servers are admin-only.')
+                app.state.infra_connections.server_label(infra_connection_id)
+        elif infra_connection_id is not None:
+            raise HTTPException(status_code=422, detail='Only Infra chats can select a server.')
+        return app.state.store.create_conversation(
+            user['id'], title, payload.agent_mode, connection_id, infra_connection_id)
 
     @app.get('/api/data/connections')
     def available_database_connections(user: dict[str, Any] = Depends(current_user)):
         return {'connections': app.state.database_connections.choices(admin=user['role'] == 'admin'),
                 'default_id': app.state.database_connections.default_id() if user['role'] == 'admin' else 'demo'}
+
+    @app.get('/api/infra/connections')
+    def available_infra_connections(user: dict[str, Any] = Depends(current_user)):
+        return {'connections': app.state.infra_connections.choices(admin=user['role'] == 'admin'),
+                'default_id': 'local'}
 
     @app.get("/api/conversations/{conversation_id}")
     def get_conversation(
@@ -521,6 +555,8 @@ def create_app(
         )
         if conversation and conversation['agent_mode'] == 'data' and conversation['database_connection_id'] not in (None, 'demo') and user['role'] != 'admin':
             raise HTTPException(status_code=403, detail='External database history is admin-only.')
+        if conversation and conversation['agent_mode'] == 'infra' and conversation['infra_connection_id'] not in (None, 'local') and user['role'] != 'admin':
+            raise HTTPException(status_code=403, detail='External infrastructure history is admin-only.')
         if not conversation:
             raise HTTPException(status_code=404, detail="Konverzácia neexistuje.")
         return conversation
@@ -569,6 +605,10 @@ def create_app(
                 detail="LIVE zdroj je dostupný iba v INFRA chate.",
             )
         if payload.agent_mode == "infra":
+            infra_connection_id = conversation['infra_connection_id'] or 'local'
+            if infra_connection_id != 'local' and user['role'] != 'admin':
+                raise HTTPException(status_code=403, detail='External infrastructure servers are admin-only.')
+            infra_server = app.state.infra_connections.server_label(infra_connection_id)
             if settings.get("infra_agent_enabled") != "1":
                 raise HTTPException(status_code=403, detail="Infra Agent je vypnutý.")
             if (
@@ -643,10 +683,10 @@ def create_app(
                     for chunk in chunks
                 ]
         if payload.agent_mode == "infra":
-            if payload.infra_source == "live":
-                try:
-                    snapshot = app.state.live_infra_collector()
-                except Exception:
+            try:
+                snapshot = app.state.infra_connections.collect(infra_connection_id, payload.infra_source)
+            except (InfraConnectionError, InfraSnapshotError):
+                if payload.infra_source == 'live':
                     LOGGER.exception(
                         "Live infrastructure collection failed for user=%s",
                         user["id"],
@@ -655,16 +695,13 @@ def create_app(
                         status_code=503,
                         detail="LIVE údaje servera sa nepodarilo bezpečne načítať.",
                     )
+                raise HTTPException(status_code=503, detail='Infra snapshot is unavailable for this server.')
+            if payload.infra_source == "live":
                 app.state.store.audit(
                     user["id"],
                     "infra.live.read",
-                    f"conversation:{conversation_id}",
+                    f"conversation:{conversation_id}:server:{infra_connection_id}",
                 )
-            else:
-                try:
-                    snapshot = read_snapshot(app.state.infra_snapshot_path)
-                except InfraSnapshotError as error:
-                    raise HTTPException(status_code=503, detail=str(error))
             if not isinstance(snapshot, dict) or not snapshot.get("generated_at"):
                 raise HTTPException(
                     status_code=503,
@@ -679,6 +716,8 @@ def create_app(
                     "type": "infra",
                     "mode": payload.infra_source,
                     "generated_at": snapshot["generated_at"],
+                    "connection_id": infra_connection_id,
+                    "server": infra_server,
                 }
             )
         provider_started = time.monotonic()
@@ -844,6 +883,10 @@ def create_app(
                 detail="LIVE zdroj je dostupný iba v INFRA chate.",
             )
         if payload.agent_mode == "infra":
+            infra_connection_id = conversation['infra_connection_id'] or 'local'
+            if infra_connection_id != 'local' and user['role'] != 'admin':
+                raise HTTPException(status_code=403, detail='External infrastructure servers are admin-only.')
+            infra_server = app.state.infra_connections.server_label(infra_connection_id)
             if settings.get("infra_agent_enabled") != "1":
                 raise HTTPException(status_code=403, detail="Infra Agent je vypnutý.")
             if (
@@ -906,10 +949,10 @@ def create_app(
                     for chunk in chunks
                 ]
         if payload.agent_mode == "infra":
-            if payload.infra_source == "live":
-                try:
-                    snapshot = app.state.live_infra_collector()
-                except Exception:
+            try:
+                snapshot = app.state.infra_connections.collect(infra_connection_id, payload.infra_source)
+            except (InfraConnectionError, InfraSnapshotError):
+                if payload.infra_source == 'live':
                     LOGGER.exception(
                         "Live infrastructure collection failed for user=%s",
                         user["id"],
@@ -918,16 +961,13 @@ def create_app(
                         status_code=503,
                         detail="LIVE údaje servera sa nepodarilo bezpečne načítať.",
                     )
+                raise HTTPException(status_code=503, detail='Infra snapshot is unavailable for this server.')
+            if payload.infra_source == "live":
                 app.state.store.audit(
                     user["id"],
                     "infra.live.read",
-                    f"conversation:{conversation_id}",
+                    f"conversation:{conversation_id}:server:{infra_connection_id}",
                 )
-            else:
-                try:
-                    snapshot = read_snapshot(app.state.infra_snapshot_path)
-                except InfraSnapshotError as error:
-                    raise HTTPException(status_code=503, detail=str(error))
             if not isinstance(snapshot, dict) or not snapshot.get("generated_at"):
                 raise HTTPException(
                     status_code=503, detail="Infra údaje nemajú platný formát."
@@ -939,6 +979,8 @@ def create_app(
                     "type": "infra",
                     "mode": payload.infra_source,
                     "generated_at": snapshot["generated_at"],
+                    "connection_id": infra_connection_id,
+                    "server": infra_server,
                 }
             )
 
@@ -1386,6 +1428,39 @@ def create_app(
             "generated_at": snapshot.get("generated_at"),
             "scope": snapshot.get("scope", "read_only"),
         }
+
+    def infra_profile_action(user, operation, callback):
+        if not app.state.limiter.check(f'infra-profiles:{user["id"]}', 12, 60):
+            raise HTTPException(status_code=429, detail='Too many infrastructure connection operations.')
+        result = callback()
+        app.state.store.audit(user['id'], f'infra.connection.{operation}', 'saved-profile')
+        return result
+
+    @app.get('/api/admin/infra/connections')
+    def list_infra_connections(user: dict[str, Any] = Depends(admin_user)):
+        return {'connections': app.state.infra_connections.profiles()}
+
+    @app.post('/api/admin/infra/connections', status_code=201)
+    def create_infra_connection(payload: InfraConnectionPayload, user: dict[str, Any] = Depends(admin_user)):
+        return infra_profile_action(user, 'create', lambda: app.state.infra_connections.save(payload))
+
+    @app.post('/api/admin/infra/connections/test')
+    def test_new_infra_connection(payload: InfraConnectionPayload, user: dict[str, Any] = Depends(admin_user)):
+        snapshot = infra_profile_action(user, 'test', lambda: app.state.infra_connections.test(payload))
+        return {'hostname': snapshot.get('hostname'), 'generated_at': snapshot.get('generated_at'), 'scope': snapshot.get('scope')}
+
+    @app.put('/api/admin/infra/connections/{connection_id}')
+    def update_infra_connection(connection_id: str, payload: InfraConnectionPayload, user: dict[str, Any] = Depends(admin_user)):
+        return infra_profile_action(user, 'update', lambda: app.state.infra_connections.save(payload, connection_id))
+
+    @app.post('/api/admin/infra/connections/{connection_id}/test')
+    def test_infra_connection(connection_id: str, payload: InfraConnectionPayload, user: dict[str, Any] = Depends(admin_user)):
+        snapshot = infra_profile_action(user, 'test', lambda: app.state.infra_connections.test(payload, connection_id))
+        return {'hostname': snapshot.get('hostname'), 'generated_at': snapshot.get('generated_at'), 'scope': snapshot.get('scope')}
+
+    @app.delete('/api/admin/infra/connections/{connection_id}')
+    def delete_infra_connection(connection_id: str, revision: int, user: dict[str, Any] = Depends(admin_user)):
+        return infra_profile_action(user, 'delete', lambda: app.state.infra_connections.delete(connection_id, revision))
 
     @app.get("/api/admin/rag/documents")
     def admin_rag_documents(user: dict[str, Any] = Depends(admin_user)):

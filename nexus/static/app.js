@@ -5,6 +5,20 @@ const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
 
 const TRANSLATIONS = {
+  infraServers: { en: 'Server connections', sk: 'Pripojenia serverov' },
+  infraServerHelp: { en: 'Managed SSH uses a fixed read-only collector, strict host-key verification and no unrestricted shell.', sk: 'Spravované SSH používa pevný read-only collector, striktné overenie host key a neposkytuje voľný shell.' },
+  infraSavedServers: { en: 'Saved servers', sk: 'Uložené servery' },
+  infraNewServer: { en: 'New server', sk: 'Nový server' },
+  infraDeleteServer: { en: 'Delete server', sk: 'Vymazať server' },
+  infraServerChat: { en: 'Server for this chat', sk: 'Server pre tento chat' },
+  infraServerChatHelp: { en: 'Choosing another server starts a new chat. Existing chats keep their server.', sk: 'Výber iného servera otvorí nový chat. Existujúce chaty si ponechajú svoj server.' },
+  infraConnectionName: { en: 'Connection name', sk: 'Názov pripojenia' },
+  infraSshPort: { en: 'SSH port', sk: 'SSH port' },
+  infraSshUser: { en: 'SSH username', sk: 'SSH používateľ' },
+  infraIdentity: { en: 'Approved identity filename', sk: 'Názov schváleného kľúča' },
+  infraIdentityHelp: { en: 'Filename inside NEXUS_INFRA_SSH_KEY_ROOT; paths are rejected.', sk: 'Názov súboru v NEXUS_INFRA_SSH_KEY_ROOT; cesty sú odmietnuté.' },
+  infraTestLive: { en: 'Test LIVE', sk: 'Otestovať LIVE' },
+  infraSaveServer: { en: 'Save server', sk: 'Uložiť server' },
   dbSavedConnections: { en: 'Saved connections', sk: 'Uložené pripojenia' },
   dbDefaultConnection: { en: 'Default connection', sk: 'Predvolené pripojenie' },
   dbNewConnection: { en: 'New connection', sk: 'Nové pripojenie' },
@@ -251,6 +265,13 @@ const state = {
   dbDefaultSettings: null,
   databaseChoices: [],
   selectedDatabaseId: null,
+  infraProfiles: [],
+  infraProfileId: 'new',
+  infraRevision: 0,
+  infraDirty: false,
+  infraBusy: false,
+  infraChoices: [],
+  selectedInfraId: null,
   ragUploading: false,
   ragMaxDocuments: 1000,
 };
@@ -539,6 +560,7 @@ function setLanguage(language, persist = true) {
   applyStaticTranslations();
   databaseFieldsVisibility();
   renderDatabaseProfiles();
+  renderInfraProfiles();
   $$('[data-language]').forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.language === state.language));
   });
@@ -758,9 +780,13 @@ async function loadCapabilities() {
   try {
     state.capabilities = await api("/capabilities");
     const sources = await api('/data/connections');
+    const infraSources = await api('/infra/connections');
     state.databaseChoices = sources.connections;
     state.selectedDatabaseId ||= sources.default_id;
     renderDatabaseChooser();
+    state.infraChoices = infraSources.connections;
+    state.selectedInfraId ||= infraSources.default_id;
+    renderInfraServerChooser();
     $("#sidebar-model").textContent = state.capabilities.model;
     show($("#infra-agent-option"), state.capabilities.infra_agent_available);
     show($("#data-agent-option"), state.capabilities.data_agent_available);
@@ -785,6 +811,7 @@ function conversationsFor(mode = state.agentMode) {
 
 function updateAgentWorkspaceUI(mode) {
   renderDatabaseChooser();
+  renderInfraServerChooser();
   const baseWorkspace = agentWorkspaces()[mode];
   const workspace = mode === "infra" && state.infraSource === "live"
     ? { ...baseWorkspace, ...liveInfraUi() }
@@ -914,6 +941,7 @@ async function createConversation(
     method: "POST",
     body: JSON.stringify({ title, agent_mode: mode,
       ...(mode === 'data' ? { database_connection_id: state.selectedDatabaseId } : {}),
+      ...(mode === 'infra' ? { infra_connection_id: state.selectedInfraId } : {}),
     }),
   });
   state.conversationsByAgent[mode].unshift({
@@ -954,6 +982,7 @@ async function openConversation(id) {
 
 function renderConversation() {
   renderDatabaseChooser();
+  renderInfraServerChooser();
   const active = state.activeConversation;
   show($("#empty-state"), !active);
   show($("#conversation-stage"), Boolean(active));
@@ -1180,9 +1209,10 @@ function messageNode(message) {
         chip.classList.add(
           source.mode === "live" ? "source-infra-live" : "source-infra-snapshot",
         );
+        const server = source.server ? ` · ${source.server}` : '';
         chip.textContent = source.mode === "live"
-          ? `● LIVE SERVER · ${formatDateTime(source.generated_at)}`
-          : `SNAPSHOT · ${formatDateTime(source.generated_at)}`;
+          ? `● LIVE SERVER${server} · ${formatDateTime(source.generated_at)}`
+          : `SNAPSHOT${server} · ${formatDateTime(source.generated_at)}`;
         sources.appendChild(chip);
       } else {
         chip.textContent = `KB · ${source.document} #${source.chunk}`;
@@ -1315,6 +1345,7 @@ async function sendMessage(content) {
   } finally {
     state.sending = false;
     renderDatabaseChooser();
+    renderInfraServerChooser();
     $("#send-button").disabled = false;
     $("#composer").setAttribute("aria-busy", "false");
     $("#message-input").focus();
@@ -1364,7 +1395,7 @@ async function loadAdmin() {
   if (state.user?.role !== "admin") return;
   $("#admin-view").setAttribute("aria-busy", "true");
   try {
-    const [overview, users, settings, rag, infra, dataSchema, ldap, databaseConnection, profiles] = await Promise.all([
+    const [overview, users, settings, rag, infra, dataSchema, ldap, databaseConnection, profiles, infraProfiles] = await Promise.all([
       api("/admin/overview"),
       api("/admin/users"),
       api("/admin/settings"),
@@ -1374,6 +1405,7 @@ async function loadAdmin() {
       api("/admin/ldap"),
       api('/admin/data/connection'),
       api('/admin/data/connections'),
+      api('/admin/infra/connections'),
     ]);
     $("#metric-users").textContent = overview.users_total;
     $("#metric-active").textContent = overview.users_active;
@@ -1407,6 +1439,11 @@ async function loadAdmin() {
     if (!state.ldapDirty && !state.ldapBusy) renderLdapSettings(ldap);
     state.dbDefaultSettings = { ...databaseConnection, schema: dataSchema.schema, name: dataSchema.database };
     state.dbProfiles = profiles.connections;
+    state.infraProfiles = infraProfiles.connections;
+    if (!state.infraDirty && !state.infraBusy) {
+      renderInfraProfiles();
+      renderInfraProfile(state.infraProfiles.find((profile) => profile.id === state.infraProfileId));
+    }
     if (!state.dbDirty && !state.dbBusy) {
       renderDatabaseProfiles();
       const selected = state.dbProfiles.find((p) => p.id === state.dbProfileId);
@@ -1573,6 +1610,107 @@ async function uploadRagDocuments(fileList) {
     $("#rag-file").value = "";
     drop.classList.remove("uploading", "dragging");
   }
+}
+
+function renderInfraServerChooser() {
+  const control = $('#chat-infra-server');
+  show($('#infra-server-switcher'), state.agentMode === 'infra');
+  if (state.agentMode !== 'infra') return;
+  const selected = state.activeConversation?.infra_connection_id || state.selectedInfraId || 'local';
+  state.selectedInfraId = selected;
+  control.replaceChildren();
+  for (const server of state.infraChoices) control.add(new Option(server.name, server.id));
+  if (!state.infraChoices.some((server) => server.id === selected)) {
+    control.add(new Option(t('dbUnavailable'), selected));
+  }
+  control.value = selected;
+  control.disabled = state.sending;
+}
+
+function selectChatInfraServer() {
+  if (state.sending) { renderInfraServerChooser(); return; }
+  const selected = $('#chat-infra-server').value;
+  if (selected === state.selectedInfraId) return;
+  if ($('#message-input').value.trim() && !window.confirm(t('discardChangesPrompt'))) {
+    renderInfraServerChooser(); return;
+  }
+  $('#message-input').value = '';
+  state.selectedInfraId = selected;
+  state.activeConversationByAgent.infra = null;
+  if (state.agentMode === 'infra') state.activeConversation = null;
+  renderConversation();
+  renderConversationList();
+}
+
+function renderInfraProfiles() {
+  const control = $('#infra-profile');
+  control.replaceChildren(new Option(t('infraNewServer'), 'new'));
+  for (const profile of state.infraProfiles) control.add(new Option(profile.name, profile.id));
+  if (state.infraProfileId !== 'new' && !state.infraProfiles.some((p) => p.id === state.infraProfileId)) state.infraProfileId = 'new';
+  control.value = state.infraProfileId;
+  show($('#infra-profile-delete'), state.infraProfileId !== 'new');
+}
+
+function renderInfraProfile(profile = {}) {
+  $('#infra-profile-name').value = profile.name || '';
+  $('#infra-host').value = profile.host || '';
+  $('#infra-port').value = profile.port || 22;
+  $('#infra-username').value = profile.username || '';
+  $('#infra-identity').value = profile.identity_file || '';
+  state.infraRevision = profile.revision || 0;
+  show($('#infra-test-result'), false);
+}
+
+function chooseInfraProfile(id) {
+  if (state.infraBusy) return;
+  if (state.infraDirty && !window.confirm(t('discardChangesPrompt'))) { renderInfraProfiles(); return; }
+  state.infraProfileId = id;
+  state.infraDirty = id === 'new';
+  renderInfraProfiles();
+  renderInfraProfile(state.infraProfiles.find((profile) => profile.id === id));
+}
+
+function infraPayload() {
+  return { name: $('#infra-profile-name').value.trim(), host: $('#infra-host').value.trim(),
+    port: Number($('#infra-port').value), username: $('#infra-username').value.trim(),
+    identity_file: $('#infra-identity').value.trim(), revision: state.infraRevision };
+}
+
+async function infraConnectionAction(save) {
+  if (state.infraBusy || !$('#infra-connection-form').reportValidity()) return;
+  const profileId = state.infraProfileId;
+  const base = `/admin/infra/connections${profileId === 'new' ? '' : '/' + profileId}`;
+  state.infraBusy = true;
+  $('#infra-form-fields').disabled = true;
+  $('#infra-test').disabled = $('#infra-save').disabled = true;
+  const output = $('#infra-test-result');
+  output.textContent = t('dbTesting'); show(output);
+  try {
+    const result = await api(save ? base : `${base}/test`, {
+      method: save && profileId !== 'new' ? 'PUT' : 'POST', body: JSON.stringify(infraPayload()),
+    });
+    if (save) {
+      state.infraProfileId = result.id;
+      state.infraDirty = false;
+      output.textContent = t('infraSaveServer');
+      await loadCapabilities();
+    } else output.textContent = `${result.hostname} · ${formatDateTime(result.generated_at)}`;
+  } catch (error) { output.textContent = error.message; output.classList.add('error'); }
+  finally {
+    state.infraBusy = false;
+    $('#infra-form-fields').disabled = false;
+    $('#infra-test').disabled = $('#infra-save').disabled = false;
+    if (save && !state.infraDirty) await loadAdmin();
+  }
+}
+
+async function deleteInfraProfile() {
+  if (state.infraBusy || state.infraProfileId === 'new' || !window.confirm(t('infraDeleteServer') + '?')) return;
+  try {
+    await api(`/admin/infra/connections/${state.infraProfileId}?revision=${state.infraRevision}`, { method: 'DELETE' });
+    state.infraProfileId = 'new'; state.infraDirty = false;
+    await loadCapabilities(); await loadAdmin();
+  } catch (error) { toast(error.message, 'error'); }
 }
 
 function renderDatabaseChooser() {
@@ -2044,11 +2182,16 @@ async function discardSettings() {
 }
 
 async function logout(notify = true) {
-  if (notify && (state.settingsDirty || state.ldapDirty || state.dbDirty) && !window.confirm(t("discardChangesPrompt"))) return;
+  if (notify && (state.settingsDirty || state.ldapDirty || state.dbDirty || state.infraDirty) && !window.confirm(t("discardChangesPrompt"))) return;
   state.dbDirty = false;
   state.dbProfileId = 'default';
   state.databaseChoices = [];
   state.selectedDatabaseId = null;
+  state.infraProfiles = [];
+  state.infraProfileId = 'new';
+  state.infraDirty = false;
+  state.infraChoices = [];
+  state.selectedInfraId = null;
   $('#db-password').value = '';
   state.ldapDirty = false;
   $('#ldap-bind-password').value = '';
@@ -2182,6 +2325,15 @@ function bindEvents() {
   $('#db-connection-form').addEventListener('submit', (event) => { event.preventDefault(); databaseAction(true); });
   $('#db-test').addEventListener('click', () => databaseAction(false));
   $('#chat-db-source').addEventListener('change', selectChatDatabase);
+  $('#chat-infra-server').addEventListener('change', selectChatInfraServer);
+  $('#infra-connection-form').addEventListener('submit', (event) => { event.preventDefault(); infraConnectionAction(true); });
+  $('#infra-test').addEventListener('click', () => infraConnectionAction(false));
+  $('#infra-profile').addEventListener('change', () => chooseInfraProfile($('#infra-profile').value));
+  $('#infra-profile-new').addEventListener('click', () => chooseInfraProfile('new'));
+  $('#infra-profile-delete').addEventListener('click', deleteInfraProfile);
+  $('#infra-connection-form').addEventListener('input', (event) => {
+    if (event.target.id !== 'infra-profile') state.infraDirty = true;
+  });
   $('#db-profile').addEventListener('change', () => chooseDatabaseProfile($('#db-profile').value));
   $('#db-profile-new').addEventListener('click', () => chooseDatabaseProfile('new'));
   $('#db-profile-delete').addEventListener('click', deleteDatabaseProfile);
@@ -2295,7 +2447,7 @@ function bindEvents() {
     }
   });
   window.addEventListener("beforeunload", (event) => {
-    if (!state.settingsDirty && !state.ldapDirty && !state.dbDirty) return;
+    if (!state.settingsDirty && !state.ldapDirty && !state.dbDirty && !state.infraDirty) return;
     event.preventDefault();
     event.returnValue = "";
   });

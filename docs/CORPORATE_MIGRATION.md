@@ -73,6 +73,12 @@ single file read-only. Do not mount the Docker socket or enable privileged mode.
 Set the snapshot unit's environment for the corporate hostname; independently
 review the static service/health allowlist in `nexus/infra.py` for the new host.
 
+For multiple managed hosts, enrol a dedicated restricted SSH observer as described
+in [Multiple infrastructure servers](INFRA_CONNECTIONS.md). Transfer
+`infra-connections.json` and verified `infra-known-hosts` through the approved
+configuration channel; restore private keys from the secret manager, never from
+the application repository or an unencrypted migration archive.
+
 ## LDAP / Active Directory
 
 Keep a tested local administrator as a recovery account. In A6, enter the server,

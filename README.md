@@ -25,6 +25,7 @@ permissions and SSO/MFA require additional integration.
 - Admin-configured PostgreSQL, MySQL, MariaDB, SQL Server, Oracle and external SQLite reporting connections; see [connection setup and limits](docs/DATABASE_CONNECTIONS.md)
 - SQLite authorizer, query-only mode, time limit, row limit, and function denylist
 - Admin control plane for creating username/password user or admin accounts, managing models, RAG, agent access policies, and LDAP directory sign-in
+- Multiple named infrastructure server connections, with an immutable server binding per Infra chat
 - Responsive desktop/mobile interface with accessible navigation and status controls
 - Built-in English/Slovak interface switch with browser-local persistence
 - Atomic user/assistant turn persistence and automatic legacy chat migration
@@ -37,7 +38,7 @@ permissions and SSO/MFA require additional integration.
 | **Infra** | Server, service, TLS, health, port, memory, load, and disk questions | Sanitized snapshot or admin-only bounded LIVE collection; no arbitrary shell |
 | **Data** | Management reports from natural language or direct SQL | Synthetic SQLite by default; optional admin-only external SQL source |
 
-Infra conversations include an in-chat `SNAPSHOT / LIVE` selector. Every successful Infra answer is labeled with its source and collection timestamp. LIVE remains admin-only even when ordinary users are allowed to use the snapshot-based Infra agent.
+Infra conversations include an in-chat server selector and a separate `SNAPSHOT / LIVE` selector. Every successful answer is labeled with its server, source mode and collection timestamp. LIVE and all remote servers remain admin-only even when ordinary users are allowed to use the local snapshot. See [Multiple infrastructure servers](docs/INFRA_CONNECTIONS.md) for restricted SSH enrolment and operational boundaries.
 
 ## Architecture
 
@@ -342,6 +343,9 @@ The synthetic reporting database is created and seeded automatically. Infra snap
 | `NEXUS_DATABASE` | Main application SQLite database | `/opt/nexuschat/data/nexus.sqlite3` |
 | `NEXUS_SYNTHETIC_DATABASE` | Isolated synthetic report database | `/opt/nexuschat/data/synthetic-business.sqlite3` |
 | `NEXUS_INFRA_SNAPSHOT` | Sanitized snapshot JSON path | `/opt/nexuschat/data/infra-snapshot.json` |
+| `NEXUS_INFRA_CONNECTION_PATH` | Protected named-server profile JSON | beside the primary database |
+| `NEXUS_INFRA_SSH_KEY_ROOT` | Approved private-key directory | beside the primary database |
+| `NEXUS_INFRA_KNOWN_HOSTS` | Managed SSH host-key file | beside the primary database |
 | `NEXUS_LDAP_SECRET_PATH` | LDAP service-bind password file | `/opt/nexuschat/data/ldap-bind-password` |
 | `NEXUS_DEFAULT_MODEL` | General assistant model | `gpt-5.6-luna` if unset; `.env.example` selects Terra |
 | `NEXUS_INFRA_MODEL` | Infra assistant model | general model |

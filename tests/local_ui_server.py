@@ -55,6 +55,14 @@ def build_app():
         secure_cookies=False,
     )
     app.state.database_connections.path.unlink(missing_ok=True)
+    app.state.infra_connections.path.unlink(missing_ok=True)
+    app.state.infra_connections.remote_collector = lambda settings, mode: {
+        'generated_at': '2026-09-12T09:00:00+00:00',
+        'hostname': settings.host,
+        'memory': {'used_mb': 1024, 'total_mb': 4096},
+        'services': [{'name': 'nexuschat', 'active': True}],
+        'scope': 'sanitized_read_only', 'collection_mode': mode,
+    }
     external_root = app.state.database_connections.sqlite_root
     external_root.mkdir(exist_ok=True)
     with sqlite3.connect(external_root / 'ui-reporting.sqlite3') as db:
