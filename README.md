@@ -1,6 +1,6 @@
 # NexusChat
 
-NexusChat is a private, self-hosted AI workspace built with FastAPI, SQLite, and a responsive vanilla JavaScript frontend. It combines a general assistant, an infrastructure assistant, and a synthetic-data SQL reporting agent in three isolated chat workspaces.
+NexusChat is a private, self-hosted AI workspace built with FastAPI, SQLite, and a responsive vanilla JavaScript frontend. It combines a general assistant, an infrastructure assistant, and a multi-database SQL reporting agent in three isolated chat workspaces.
 
 The web interface defaults to English and can be switched to Slovak from both the sign-in screen and the authenticated workspace. The browser remembers the language choice, while assistants answer in the language used by the user.
 
@@ -22,6 +22,7 @@ permissions and SSO/MFA require additional integration.
 - Sanitized infrastructure snapshot refreshed by a hardened systemd timer
 - Admin-only LIVE Infra checks with a fixed read-only collector and successful-read audit logging
 - Synthetic commerce database with natural-language-to-SQL reporting
+- Admin-configured PostgreSQL, MySQL, MariaDB, SQL Server, Oracle and external SQLite reporting connections; see [connection setup and limits](docs/DATABASE_CONNECTIONS.md)
 - SQLite authorizer, query-only mode, time limit, row limit, and function denylist
 - Admin control plane for creating username/password user or admin accounts, managing models, RAG, agent access policies, and LDAP directory sign-in
 - Responsive desktop/mobile interface with accessible navigation and status controls
@@ -34,7 +35,7 @@ permissions and SSO/MFA require additional integration.
 | --- | --- | --- |
 | **Nexus** | General analysis, planning, writing, and optional RAG | Conversation history plus selected knowledge-base chunks |
 | **Infra** | Server, service, TLS, health, port, memory, load, and disk questions | Sanitized snapshot or admin-only bounded LIVE collection; no arbitrary shell |
-| **Data** | Management reports from natural language or direct SQL | A separate, deterministic, fully synthetic SQLite database |
+| **Data** | Management reports from natural language or direct SQL | Synthetic SQLite by default; optional admin-only external SQL source |
 
 Infra conversations include an in-chat `SNAPSHOT / LIVE` selector. Every successful Infra answer is labeled with its source and collection timestamp. LIVE remains admin-only even when ordinary users are allowed to use the snapshot-based Infra agent.
 
@@ -184,19 +185,28 @@ The model receives only the serialized sanitized state and explicit instructions
 
 ### Data agent logic
 
-The Data agent never opens the Nexus application database. It uses a separate SQLite database seeded with deterministic fictional commerce and support data.
+By default the Data agent uses a separate SQLite database seeded with deterministic
+fictional commerce and support data. Administration A5 can activate an external
+reporting source after connection validation, table selection and explicit
+read-only/data-egress approval. Do not configure the Nexus application database as
+a reporting source. See [External reporting databases](docs/DATABASE_CONNECTIONS.md)
+for drivers, credentials, TLS, access restrictions and operational limits.
 
 ```mermaid
 flowchart LR
     Q["User question"] --> D{"Starts with SELECT or WITH?"}
     D -->|Yes| V["Validate supplied SQL"]
-    D -->|No| G["Generate SQL from synthetic schema"]
+    D -->|No| G["Generate SQL from selected schema and dialect"]
     G --> V
     V --> E["Execute in read-only sandbox"]
     E --> R["Bound rows, columns, cells, and time"]
     R --> M["Generate management report in question language"]
     M --> P["Persist report and SQL source metadata"]
 ```
+
+The following controls describe the **demo SQLite path**. The external path uses
+SQLGlot table/function validation, dialect-specific read-only/timeout controls and
+dedicated SELECT-only credentials instead; see the linked connector guide.
 
 Only one `SELECT` or `WITH` statement is accepted. The validator rejects mutation, DDL, PRAGMA, attach, transaction, and multi-statement input. Execution adds several independent controls:
 
@@ -368,6 +378,7 @@ nexus/
   rag.py          validation, chunking, and FTS5 search helpers
   infra.py        snapshot parsing and bounded LIVE collection
   data_agent.py   synthetic database and SQL sandbox
+  database_connection.py  external SQL adapters, protected configuration and query allowlist
   ldap_auth.py    TLS-aware LDAP search, bind, and secret-file handling
   config.py       validated deployment environment settings
   middleware.py   bounded request bodies and chat admission

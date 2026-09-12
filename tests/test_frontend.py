@@ -16,8 +16,9 @@ def test_spa_shell_is_served(client):
     assert 'id="admin-user-email"' not in response.text
     assert 'name="identifier"' in response.text
     assert "crypto.getRandomValues" in client.get("/assets/app.js").text
-    assert 'assets/app.js?v=20260911a' in response.text
-    assert 'assets/styles.css?v=20260911a' in response.text
+    assert 'assets/app.js?v=20260912a' in response.text
+    assert 'assets/styles.css?v=20260912a' in response.text
+    assert 'id="db-connection-form"' in response.text
     assert 'id="settings-dirty-bar"' in response.text
     assert 'id="settings-dirty-save"' in response.text
     assert "settingsDirty" in client.get("/assets/app.js").text

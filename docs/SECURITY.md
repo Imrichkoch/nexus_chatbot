@@ -56,7 +56,7 @@ Do not add arbitrary shell execution, user-controlled subprocess arguments, unre
 
 ## SQL report boundary
 
-The Data agent operates on a separate synthetic database. Defense in depth includes:
+The Data agent defaults to a separate synthetic database. Its demo defenses include:
 
 - deterministic fictional seed data;
 - acceptance of only `SELECT` and `WITH` statements;
@@ -67,7 +67,13 @@ The Data agent operates on a separate synthetic database. Defense in depth inclu
 - an unsafe-function denylist;
 - execution time, row, column, and cell-size limits.
 
-Never point `NEXUS_SYNTHETIC_DATABASE` at the application database or a production business database without designing a separate authorization and governance layer.
+Never point `NEXUS_SYNTHETIC_DATABASE` at the application database or an external
+business database: that path is the demo seeding path. Use the explicit A5 external
+connection workflow instead. External sources require admin access, SELECT-only
+credentials, a table/function allowlist, verified TLS by default and approval for
+model-provider data egress. The source password is in a separate mode-0600 file;
+it is not encrypted at rest. See [External reporting databases](DATABASE_CONNECTIONS.md)
+for the per-driver read-only limitations and mandatory database grants.
 
 ## RAG boundary
 

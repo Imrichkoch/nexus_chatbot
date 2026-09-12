@@ -21,6 +21,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from nexus.ai import AIUnavailable, OpenAIProvider
 from nexus.config import RuntimeConfig
+from nexus.database_connection import (
+    ConnectionSettings, ConnectionConfigurationError, ConnectionConflict, DatabaseConnections,
+)
 from nexus.data_agent import (
     DataReportAgent,
     QueryRejected,
@@ -233,6 +236,11 @@ def create_app(
     app.state.data_agent = DataReportAgent(
         app.state.synthetic_database, app.state.ai_provider
     )
+    app.state.database_connections = DatabaseConnections(
+        Path(os.getenv('NEXUS_DB_CONNECTION_PATH') or Path(app.state.store.database_path).parent / 'database-connection.json'),
+        app.state.synthetic_database,
+        sqlite_root=Path(os.getenv('NEXUS_EXTERNAL_SQLITE_ROOT') or Path(app.state.store.database_path).parent / 'external-databases'),
+    )
     app.add_middleware(RequestBodyLimit)
     app.add_middleware(ChatAdmissionLimit, maximum=int(os.getenv('NEXUS_MAX_CONCURRENT_CHATS', '4')))
     app.state.ldap_authenticator = ldap_authenticator or LDAPAuthenticator(
@@ -253,6 +261,10 @@ def create_app(
     @app.exception_handler(StorageQuotaExceeded)
     async def storage_quota_error(request, error):
         return JSONResponse({'detail': str(error)}, status_code=413)
+
+    @app.exception_handler(ConnectionConfigurationError)
+    async def database_configuration_error(request, error):
+        return JSONResponse({'detail': str(error)}, status_code=409 if isinstance(error, ConnectionConflict) else 422)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, error):
@@ -450,7 +462,8 @@ def create_app(
             user["role"] == "admin" or not infra_admin_only
         )
         data_enabled = settings.get("data_agent_enabled", "1") == "1"
-        data_admin_only = settings.get("data_agent_admin_only", "0") == "1"
+        data_admin_only = (settings.get("data_agent_admin_only", "0") == "1"
+                           or app.state.database_connections.public()['kind'] != 'demo')
         return {
             "model": settings["model"],
             "rag_enabled": settings.get("rag_enabled") == "1",
@@ -565,10 +578,11 @@ def create_app(
                         detail="Príliš veľa LIVE kontrol. Skús to o chvíľu.",
                     )
         if payload.agent_mode == "data":
+            database_source = app.state.database_connections.snapshot()
             if settings.get("data_agent_enabled", "1") != "1":
                 raise HTTPException(status_code=403, detail="Data Agent je vypnutý.")
             if (
-                settings.get("data_agent_admin_only", "0") == "1"
+                (settings.get("data_agent_admin_only", "0") == "1" or not database_source.fictional)
                 and user["role"] != "admin"
             ):
                 raise HTTPException(
@@ -657,7 +671,7 @@ def create_app(
                         blocked_text = (
                             "SQL POŽIADAVKA ZABLOKOVANÁ\n\n"
                             f"`{blocked_operation}` je deštruktívna operácia. Data Agent "
-                            "je striktne read-only a nad izolovanou fiktívnou databázou "
+                            "je striktne read-only a nad zvolenou databázou "
                             "povoľuje iba jeden dotaz SELECT alebo WITH. Žiadna tabuľka "
                             "nebola zmenená.\n\n"
                             "Skús napríklad: `SELECT * FROM customers LIMIT 20`"
@@ -667,7 +681,7 @@ def create_app(
                             "SQL REQUEST BLOCKED\n\n"
                             f"`{blocked_operation}` is a destructive operation. The Data "
                             "Agent is strictly read-only and only allows one SELECT or WITH "
-                            "query against the isolated synthetic database. No table was "
+                            "query against the selected database. No table was "
                             "changed.\n\n"
                             "Try: `SELECT * FROM customers LIMIT 20`"
                         )
@@ -684,7 +698,8 @@ def create_app(
                     }
                     rag_sources = []
                 else:
-                    result = app.state.data_agent.answer(
+                    agent = app.state.data_agent if database_source.fictional else DataReportAgent(database_source, app.state.ai_provider)
+                    result = agent.answer(
                         question=content,
                         user_id=user["id"],
                         model=settings.get("data_model", settings["model"]),
@@ -1260,11 +1275,38 @@ def create_app(
 
     @app.get("/api/admin/data/schema")
     def admin_data_schema(user: dict[str, Any] = Depends(admin_user)):
+        source = app.state.database_connections.snapshot()
         return {
-            "database": "Nexus Synthetic Commerce",
-            "fictional": True,
-            "schema": app.state.synthetic_database.schema_prompt(),
+            "database": source.label,
+            "fictional": source.fictional,
+            "schema": source.schema_prompt(),
         }
+
+    @app.get('/api/admin/data/connection')
+    def admin_database_connection(user: dict[str, Any] = Depends(admin_user)):
+        return app.state.database_connections.public()
+
+    @app.post('/api/admin/data/connection/test')
+    def test_database_connection(payload: ConnectionSettings, user: dict[str, Any] = Depends(admin_user)):
+        if not app.state.limiter.check(f'db-test:{user["id"]}', 6, 60):
+            raise HTTPException(status_code=429, detail='Too many database connection tests.')
+        try:
+            result = app.state.database_connections.test(payload)
+        except QueryRejected as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        app.state.store.audit(user['id'], 'data.connection.test', payload.kind)
+        return result
+
+    @app.put('/api/admin/data/connection')
+    def save_database_connection(payload: ConnectionSettings, user: dict[str, Any] = Depends(admin_user)):
+        if not app.state.limiter.check(f'db-save:{user["id"]}', 6, 60):
+            raise HTTPException(status_code=429, detail='Too many database configuration changes.')
+        try:
+            result = app.state.database_connections.save(payload)
+        except QueryRejected as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        app.state.store.audit(user['id'], 'data.connection.save', f'{payload.kind}:revision:{result["revision"]}')
+        return result
 
     @app.get("/api/admin/models")
     def admin_models(user: dict[str, Any] = Depends(admin_user)):

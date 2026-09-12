@@ -88,10 +88,11 @@ def main():
                     if copied.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                         raise RuntimeError('Backup integrity check failed')
                 os.chmod(backup / filename, 0o600)
-        secret = root / 'data/ldap-bind-password'
-        if secret.exists():
-            shutil.copy2(secret, backup / secret.name)
-            os.chmod(backup / secret.name, 0o600)
+        for secret_name in ('ldap-bind-password', 'database-connection.json'):
+            secret = root / 'data' / secret_name
+            if secret.exists():
+                shutil.copy2(secret, backup / secret.name)
+                os.chmod(backup / secret.name, 0o600)
         (root / 'nexus').rename(release / 'previous-nexus')
         switched_code = True
         (release / 'nexus').rename(root / 'nexus')

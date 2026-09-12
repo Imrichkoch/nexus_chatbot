@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     NEXUS_REGISTRATION_ENABLED=0 NEXUS_SECURE_COOKIES=1 NEXUS_BASE_PATH=""
 WORKDIR /opt/nexuschat
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN apt-get update && apt-get install -y --no-install-recommends libodbc2 \
+    && pip install --no-cache-dir -r requirements.txt \
     && groupadd --gid 10001 nexuschat \
     && useradd --uid 10001 --gid 10001 --system --no-create-home nexuschat \
     && mkdir data && chown nexuschat:nexuschat data

@@ -5,6 +5,33 @@ const RAG_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const RAG_MAX_BATCH_BYTES = 50 * 1024 * 1024;
 
 const TRANSLATIONS = {
+  dbConnection: { en: 'Database connection', sk: 'Pripojenie databázy' },
+  dbHelp: { en: 'Test without saving. Save validates and activates the source. Existing chats are retained.', sk: 'Test neukladá zmeny. Uloženie overí a aktivuje zdroj. Existujúce chaty zostávajú zachované.' },
+  dbType: { en: 'Database type', sk: 'Typ databázy' },
+  dbDemo: { en: 'Demo — synthetic SQLite', sk: 'Demo — fiktívna SQLite' },
+  dbSqlite: { en: 'SQLite — external file', sk: 'SQLite — externý súbor' },
+  dbHost: { en: 'Hostname / IP', sk: 'Názov servera / IP' },
+  dbPort: { en: 'Port', sk: 'Port' },
+  dbName: { en: 'Database / Oracle service / SQLite filename', sk: 'Databáza / Oracle service / názov SQLite súboru' },
+  dbSchema: { en: 'Schema (optional)', sk: 'Schéma (voliteľná)' },
+  dbUser: { en: 'Database username', sk: 'Databázový používateľ' },
+  dbPassword: { en: 'Database password', sk: 'Databázové heslo' },
+  dbKeepPassword: { en: 'Leave blank to keep saved password', sk: 'Prázdne = ponechať uložené heslo' },
+  dbTls: { en: 'Verify TLS certificate and hostname', sk: 'Overovať TLS certifikát a názov servera' },
+  dbTables: { en: 'Allowed tables / views (comma-separated)', sk: 'Povolené tabuľky / pohľady (oddelené čiarkou)' },
+  dbReadOnly: { en: 'I use a dedicated SELECT-only account, without write or administrative grants.', sk: 'Používam samostatný účet iba na SELECT, bez oprávnení na zápis a administráciu.' },
+  dbEgress: { en: 'I approve sending selected schema and query results to the configured AI provider.', sk: 'Schvaľujem odosielanie zvolenej schémy a výsledkov dotazov nakonfigurovanému AI poskytovateľovi.' },
+  dbBoundary: { en: 'Table selection is not a replacement for database permissions. External sources are restricted to Nexus administrators.', sk: 'Výber tabuliek nenahrádza databázové oprávnenia. Externé zdroje sú prístupné iba administrátorom Nexusu.' },
+  dbTest: { en: 'Test and list tables', sk: 'Otestovať a zobraziť tabuľky' },
+  dbSave: { en: 'Save and activate', sk: 'Uložiť a aktivovať' },
+  dbSaved: { en: 'Database source activated.', sk: 'Databázový zdroj bol aktivovaný.' },
+  dbTesting: { en: 'Connecting…', sk: 'Pripájam…' },
+  dbTablesFound: { en: 'Connection verified. Available tables/views:', sk: 'Spojenie overené. Dostupné tabuľky/pohľady:' },
+  dbSqliteNote: { en: 'SQLite: place the file in the server directory NEXUS_EXTERNAL_SQLITE_ROOT. Enter only its filename. No upload or file creation occurs here.', sk: 'SQLite: vlož súbor do serverového adresára NEXUS_EXTERNAL_SQLITE_ROOT. Zadaj iba názov súboru. Tu sa súbory nenahrávajú ani nevytvárajú.' },
+  dbMssqlNote: { en: 'SQL Server requires Microsoft ODBC Driver 18 on the application server. ApplicationIntent is not a permission boundary; use SELECT-only grants.', sk: 'SQL Server vyžaduje Microsoft ODBC Driver 18 na aplikačnom serveri. ApplicationIntent nenahrádza oprávnenia; účet musí mať iba SELECT.' },
+  dbNetworkNote: { en: 'The Nexus server must reach this database. TLS verification is required by default; a corporate CA can be configured by the operator.', sk: 'Server Nexusu musí mať prístup k databáze. Predvolene je povinné overovanie TLS; firemnú CA môže nastaviť správca servera.' },
+  dbSchemaTitle: { en: 'Active reporting schema', sk: 'Aktívna reportovacia schéma' },
+  dbLimits: { en: 'SELECT/WITH · max 100 rows · external sources are admin-only', sk: 'SELECT/WITH · max 100 riadkov · externé zdroje iba pre adminov' },
   pageTitle: { en: "NexusChat / AI workspace", sk: "NexusChat / AI pracovný priestor" },
   metaDescription: { en: "NexusChat — private AI workspace.", sk: "NexusChat — súkromný AI pracovný priestor." },
   skipContent: { en: "Skip to main content", sk: "Preskočiť na hlavný obsah" },
@@ -91,7 +118,7 @@ const TRANSLATIONS = {
   allowLive: { en: "Allow LIVE for admins", sk: "Povoliť LIVE adminom" },
   infraBoundary: { en: "CPU · RAM · disk · ports · TLS · health · approved systemd services", sk: "CPU · RAM · disk · porty · TLS · health · povolené systemd služby" },
   dataToggle: { en: "Enable or disable SQL Report Agent", sk: "Zapnúť alebo vypnúť SQL Report Agenta" },
-  dataCopy: { en: "It turns a question into read-only SQL, runs it against an isolated fictional database, and returns a finished management report.", sk: "Z otázky vytvorí read-only SQL, vykoná ho nad izolovanou fiktívnou databázou a vráti hotový manažérsky report." },
+  dataCopy: { en: 'Turns questions into read-only SQL and reports over the selected database source.', sk: 'Mení otázky na read-only SQL a reporty nad zvoleným databázovým zdrojom.' },
   syntheticBoundary: { en: "No real accounts or chats · SELECT/WITH · max 100 rows · time limit", sk: "Žiadne reálne účty ani chaty · SELECT/WITH · max 100 riadkov · časový limit" },
   fictionalSchema: { en: "Fictional schema", sk: "Fiktívna schéma" },
   tryAsking: { en: "TRY ASKING", sk: "SKÚS SA OPÝTAŤ" },
@@ -205,6 +232,9 @@ const state = {
   settingsDirty: false,
   ldapDirty: false,
   ldapBusy: false,
+  dbDirty: false,
+  dbBusy: false,
+  dbRevision: 0,
   ragUploading: false,
   ragMaxDocuments: 1000,
 };
@@ -282,12 +312,12 @@ const AGENT_WORKSPACES_SK = {
     sectionLabel: "DATA CHAT",
     mark: "D",
     newChatLabel: "Nový SQL report",
-    emptyEyebrow: "DATA AGENT / SYNTHETIC DB",
+    emptyEyebrow: "DATA AGENT / READ-ONLY DB",
     emptyTitleLead: "Aký report",
     emptyTitleAccent: "pripravíme?",
-    emptyDescription: "Samostatný priestor pre read-only SQL a reporty z fiktívnych dát.",
+    emptyDescription: "Samostatný priestor pre read-only SQL a reporty zo zvolenej databázy.",
     placeholder: "Požiadaj o report alebo napíš read-only SQL…",
-    disclaimer: "Data Agent pracuje iba s oddelenou fiktívnou databázou v read-only režime.",
+    disclaimer: "Data Agent číta zvolenú databázu. Externé zdroje sú iba pre adminov; výsledky sa odosielajú AI poskytovateľovi.",
     prompts: [
       {
         index: "01 / SALES",
@@ -394,12 +424,12 @@ const AGENT_WORKSPACES_EN = {
     sectionLabel: "DATA CHAT",
     mark: "D",
     newChatLabel: "New SQL report",
-    emptyEyebrow: "DATA AGENT / SYNTHETIC DB",
+    emptyEyebrow: "DATA AGENT / READ-ONLY DB",
     emptyTitleLead: "Which report",
     emptyTitleAccent: "shall we prepare?",
-    emptyDescription: "A separate workspace for read-only SQL and reports over fictional data.",
+    emptyDescription: "A separate workspace for read-only SQL and reports over the selected database.",
     placeholder: "Request a report or enter read-only SQL…",
-    disclaimer: "Data Agent only works with an isolated fictional database in read-only mode.",
+    disclaimer: "Data Agent reads the configured database. External sources are admin-only; results are sent to the AI provider.",
     prompts: [
       {
         index: "01 / SALES",
@@ -1307,7 +1337,7 @@ async function loadAdmin() {
   if (state.user?.role !== "admin") return;
   $("#admin-view").setAttribute("aria-busy", "true");
   try {
-    const [overview, users, settings, rag, infra, dataSchema, ldap] = await Promise.all([
+    const [overview, users, settings, rag, infra, dataSchema, ldap, databaseConnection] = await Promise.all([
       api("/admin/overview"),
       api("/admin/users"),
       api("/admin/settings"),
@@ -1315,6 +1345,7 @@ async function loadAdmin() {
       api("/admin/infra/status"),
       api("/admin/data/schema"),
       api("/admin/ldap"),
+      api('/admin/data/connection'),
     ]);
     $("#metric-users").textContent = overview.users_total;
     $("#metric-active").textContent = overview.users_active;
@@ -1346,6 +1377,8 @@ async function loadAdmin() {
     renderInfraStatus(infra);
     renderDataSchema(dataSchema.schema);
     if (!state.ldapDirty && !state.ldapBusy) renderLdapSettings(ldap);
+    if (!state.dbDirty && !state.dbBusy) renderDatabaseSettings(databaseConnection);
+    $('#db-active-source').textContent = `${dataSchema.database} / READ-ONLY`;
     loadModelCatalog();
   } catch (error) {
     toast(error.message, "error");
@@ -1359,7 +1392,7 @@ function renderDataSchema(schema) {
   container.replaceChildren();
   const tableLines = schema
     .split("\n")
-    .filter((line) => /^[a-z_]+\(/.test(line));
+    .filter((line) => /^[A-Za-z_][A-Za-z0-9_]*\(/.test(line));
   for (const line of tableLines) {
     const open = line.indexOf("(");
     const chip = document.createElement("div");
@@ -1500,6 +1533,83 @@ async function uploadRagDocuments(fileList) {
     state.ragUploading = false;
     $("#rag-file").value = "";
     drop.classList.remove("uploading", "dragging");
+  }
+}
+
+function databaseFieldsVisibility() {
+  const kind = $('#db-kind').value;
+  const external = kind !== 'demo';
+  show($('#db-external-fields'), external);
+  $('#db-external-fields').disabled = !external;
+  $$('[data-db-network]').forEach((element) => {
+    show(element, kind !== 'sqlite');
+    element.querySelectorAll('input').forEach((input) => { input.disabled = kind === 'sqlite'; });
+  });
+  $('#db-host').required = external && kind !== 'sqlite';
+  $('#db-username').required = external && kind !== 'sqlite';
+  $('#db-driver-note').textContent = t(kind === 'sqlite' ? 'dbSqliteNote' : kind === 'mssql' ? 'dbMssqlNote' : 'dbNetworkNote');
+}
+
+function renderDatabaseSettings(settings) {
+  state.dbRevision = settings.revision;
+  $('#db-kind').value = settings.kind;
+  $('#db-host').value = settings.host;
+  $('#db-port').value = settings.port;
+  $('#db-database').value = settings.database;
+  $('#db-schema').value = settings.schema_name;
+  $('#db-username').value = settings.username;
+  $('#db-password').value = '';
+  $('#db-tables').value = settings.tables.join(', ');
+  $('#db-tls').checked = settings.tls;
+  $('#db-read-only').checked = settings.read_only_confirmed;
+  $('#db-egress').checked = settings.egress_confirmed;
+  databaseFieldsVisibility();
+}
+
+function databasePayload() {
+  return {
+    kind: $('#db-kind').value, host: $('#db-host').value.trim(), port: Number($('#db-port').value) || 5432,
+    database: $('#db-database').value.trim(), schema_name: $('#db-schema').value.trim(),
+    username: $('#db-username').value.trim(), password: $('#db-password').value,
+    tables: [...new Set($('#db-tables').value.split(',').map((name) => name.trim()).filter(Boolean))],
+    tls: $('#db-tls').checked, read_only_confirmed: $('#db-read-only').checked,
+    egress_confirmed: $('#db-egress').checked, revision: state.dbRevision,
+  };
+}
+
+async function databaseAction(save) {
+  if (state.dbBusy || !$('#db-connection-form').reportValidity()) return;
+  const payload = databasePayload();
+  state.dbBusy = true;
+  $('#db-form-fields').disabled = true;
+  $('#db-test').disabled = true;
+  $('#db-save').disabled = true;
+  const output = $('#db-test-result');
+  output.textContent = t('dbTesting');
+  output.classList.remove('error');
+  show(output);
+  try {
+    const result = await api(save ? '/admin/data/connection' : '/admin/data/connection/test', {
+      method: save ? 'PUT' : 'POST', body: JSON.stringify(payload),
+    });
+    if (save) {
+      state.dbDirty = false;
+      renderDatabaseSettings(result);
+      output.textContent = t('dbSaved');
+      await loadCapabilities();
+      await loadAdmin();
+    } else {
+      output.textContent = `${t('dbTablesFound')}\n${result.tables.join(', ') || '—'}${result.tables_truncated ? '\n…' : ''}`;
+    }
+  } catch (error) {
+    output.textContent = error.message;
+    output.classList.add('error');
+  } finally {
+    state.dbBusy = false;
+    $('#db-form-fields').disabled = false;
+    $('#db-test').disabled = false;
+    $('#db-save').disabled = false;
+    databaseFieldsVisibility();
   }
 }
 
@@ -1799,7 +1909,9 @@ async function discardSettings() {
 }
 
 async function logout(notify = true) {
-  if (notify && (state.settingsDirty || state.ldapDirty) && !window.confirm(t("discardChangesPrompt"))) return;
+  if (notify && (state.settingsDirty || state.ldapDirty || state.dbDirty) && !window.confirm(t("discardChangesPrompt"))) return;
+  state.dbDirty = false;
+  $('#db-password').value = '';
   state.ldapDirty = false;
   $('#ldap-bind-password').value = '';
   try {
@@ -1929,6 +2041,19 @@ function bindEvents() {
     saveLdapSettings(event.currentTarget);
   });
   $("#ldap-test").addEventListener("click", testLdapConnection);
+  $('#db-connection-form').addEventListener('submit', (event) => { event.preventDefault(); databaseAction(true); });
+  $('#db-test').addEventListener('click', () => databaseAction(false));
+  $('#db-connection-form').addEventListener('input', () => {
+    state.dbDirty = true;
+    show($('#db-test-result'), false);
+  });
+  $('#db-kind').addEventListener('change', () => {
+    const kind = $('#db-kind').value;
+    $('#db-port').value = { postgresql: 5432, mysql: 3306, mariadb: 3306, mssql: 1433, oracle: 1521, sqlite: 5432, demo: 5432 }[kind];
+    $('#db-schema').value = { postgresql: 'public', mssql: 'dbo', sqlite: 'main' }[kind] || '';
+    $('#db-password').value = '';
+    databaseFieldsVisibility();
+  });
   $('#ldap-settings-form').addEventListener('input', () => { state.ldapDirty = true; });
   $('#ldap-enabled').addEventListener('input', () => { state.ldapDirty = true; });
   $("#settings-dirty-discard").addEventListener("click", discardSettings);
@@ -2027,7 +2152,7 @@ function bindEvents() {
     }
   });
   window.addEventListener("beforeunload", (event) => {
-    if (!state.settingsDirty && !state.ldapDirty) return;
+    if (!state.settingsDirty && !state.ldapDirty && !state.dbDirty) return;
     event.preventDefault();
     event.returnValue = "";
   });

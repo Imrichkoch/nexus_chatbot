@@ -88,6 +88,8 @@ UNSAFE_FUNCTIONS = {
 
 
 class SyntheticDatabase:
+    fictional = True
+    label = 'Synthetic Business DB'
     def __init__(self, path: str):
         self.path = str(Path(path))
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -367,7 +369,7 @@ class SyntheticDatabase:
                     + ")"
                 )
         return (
-            "Dáta sú úplne fiktívne a mena je EUR.\n"
+            "SQL dialect: sqlite. Dáta sú úplne fiktívne a mena je EUR.\n"
             + "\n".join(definitions)
             + "\nVzťahy: orders.customer_id -> customers.id; "
             "order_items.order_id -> orders.id; "
@@ -516,6 +518,9 @@ class DataReportAgent:
             output_tokens += int(repaired.get("output_tokens", 0))
             query_result = self.database.execute(sql)
 
+        sql = query_result.get('executed_sql', sql)
+        query_result['fictional'] = self.database.fictional
+        query_result['database_label'] = self.database.label
         report = self.ai_provider.create_sql_report(
             question=question,
             sql=sql,
@@ -531,7 +536,8 @@ class DataReportAgent:
             "output_tokens": output_tokens + int(report.get("output_tokens", 0)),
             "source": {
                 "type": "sql",
-                "label": "Synthetic Business DB",
+                "label": self.database.label,
+                "fictional": self.database.fictional,
                 "query": sql,
                 "row_count": query_result["row_count"],
                 "truncated": query_result["truncated"],

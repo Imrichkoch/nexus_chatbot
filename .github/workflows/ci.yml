@@ -53,3 +53,43 @@ jobs:
           done
           docker logs nexus-ci
           exit 1
+  reporting-databases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-owner-only
+          POSTGRES_DB: reporting
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-owner-only
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: reporting
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -pci-owner-only" --health-interval 5s --health-timeout 5s --health-retries 30
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-owner-only
+          MARIADB_ROOT_HOST: '%'
+          MARIADB_DATABASE: reporting
+        ports: ['3307:3306']
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Real read-only reporting connections
+        env:
+          NEXUS_DB_INTEGRATION: disposable-ci
+        run: python -m pytest -q tests/test_database_services.py

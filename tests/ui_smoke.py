@@ -447,6 +447,41 @@ def run() -> None:
             path=str(OUTPUT_DIR / "nexus-sql-blocked-mobile.png"),
             full_page=False,
         )
+        desktop.locator('#sidebar-open').click()
+        desktop.locator('#admin-nav').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#db-kind').select_option('postgresql')
+        desktop.locator('#db-host').fill('draft.company.test')
+        desktop.locator('#db-database').fill('reporting')
+        desktop.locator('#db-username').fill('reader')
+        desktop.locator('.topbar [data-language=sk]').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        assert desktop.locator('#db-host').input_value() == 'draft.company.test'
+        assert desktop.locator('#db-save').inner_text() == 'Uložiť a aktivovať'
+        desktop.locator('.topbar [data-language=en]').click()
+        desktop.wait_for_function("() => document.querySelector('#admin-view').getAttribute('aria-busy') === 'false'")
+        desktop.locator('#db-connection-form').screenshot(path=str(OUTPUT_DIR / 'nexus-db-connection-mobile.png'))
+        desktop.locator('#db-save').scroll_into_view_if_needed()
+        desktop.screenshot(path=str(OUTPUT_DIR / 'nexus-db-connection-mobile-actions.png'))
+        width = desktop.locator('#db-connection-form').evaluate('e => [e.clientWidth, e.scrollWidth]')
+        assert width[1] <= width[0] + 2, width
+        desktop.set_viewport_size({'width': 1440, 'height': 1000})
+        desktop.locator('#db-connection-form').screenshot(path=str(OUTPUT_DIR / 'nexus-db-connection-desktop.png'))
+        desktop.locator('#db-kind').select_option('sqlite')
+        desktop.locator('#db-database').fill('ui-reporting.sqlite3')
+        desktop.locator('#db-read-only').check()
+        desktop.locator('#db-egress').check()
+        desktop.locator('#db-test').click()
+        desktop.wait_for_function("() => document.querySelector('#db-test-result').textContent.includes('revenue')")
+        assert desktop.request.get('http://127.0.0.1:8765/api/admin/data/connection').json()['kind'] == 'demo'
+        desktop.locator('#db-tables').fill('revenue')
+        desktop.locator('#db-save').click()
+        desktop.wait_for_function("() => document.querySelector('#db-active-source').textContent.includes('ui-reporting.sqlite3')")
+        desktop.wait_for_function("() => !document.querySelector('#db-save').disabled")
+        assert desktop.request.get('http://127.0.0.1:8765/api/admin/data/connection').json()['kind'] == 'sqlite'
+        desktop.locator('#db-kind').select_option('demo')
+        desktop.locator('#db-save').click()
+        desktop.wait_for_function("() => document.querySelector('#db-active-source').textContent.includes('Synthetic Business')")
         browser.close()
 
         assert not console_errors, f"Browser console errors: {console_errors}"

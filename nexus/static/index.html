@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#07100f">
   <meta name="description" content="NexusChat — súkromný AI pracovný priestor.">
   <title>NexusChat / AI workspace</title>
-  <link rel="stylesheet" href="assets/styles.css?v=20260911a">
-  <script src="assets/app.js?v=20260911a" defer></script>
+    <link rel="stylesheet" href="assets/styles.css?v=20260912a">
+  <script src="assets/app.js?v=20260912a" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Preskočiť na hlavný obsah</a>
@@ -363,7 +363,7 @@
             </div>
             <div class="data-agent-layout">
               <div>
-                <p class="card-copy">Z otázky vytvorí read-only SQL, vykoná ho nad izolovanou fiktívnou databázou a vráti hotový manažérsky report.</p>
+                <p class="card-copy">Turns questions into read-only SQL and reports over the selected database source.</p>
                 <div class="settings-form settings-form--compact">
                   <label>
                     <span>Data model</span>
@@ -375,12 +375,12 @@
                   </label>
                 </div>
                 <div class="safety-boundary safety-boundary--amber">
-                  <span>SYNTHETIC / QUERY-ONLY</span>
-                  <small>Žiadne reálne účty ani chaty · SELECT/WITH · max 100 riadkov · časový limit</small>
+                  <span id="db-active-source">DEMO / QUERY-ONLY</span>
+                  <small>SELECT/WITH · max 100 rows · external sources are admin-only</small>
                 </div>
               </div>
               <div>
-                <span class="field-label">Fiktívna schéma</span>
+                <span class="field-label">Active reporting schema</span>
                 <div id="data-schema-tables" class="schema-table-list"></div>
                 <div class="data-examples">
                   <span>SKÚS SA OPÝTAŤ</span>
@@ -390,6 +390,44 @@
                 </div>
               </div>
             </div>
+            <form id="db-connection-form" class="db-connection-form">
+              <h4>Database connection</h4>
+              <p class="card-copy">Test without saving. Save validates and activates the source. Existing chats are retained.</p>
+              <fieldset id="db-form-fields">
+                <label><span>Database type</span>
+                  <select id="db-kind">
+                    <option value="demo">Demo — synthetic SQLite</option>
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="mysql">MySQL</option>
+                    <option value="mariadb">MariaDB</option>
+                    <option value="mssql">Microsoft SQL Server</option>
+                    <option value="oracle">Oracle</option>
+                    <option value="sqlite">SQLite — external file</option>
+                  </select>
+                </label>
+                <fieldset id="db-external-fields" class="hidden">
+                  <div class="db-field-grid">
+                    <label data-db-network><span>Hostname / IP</span><input id="db-host" maxlength="253" placeholder="db.company.internal" autocomplete="off"></label>
+                    <label data-db-network><span>Port</span><input id="db-port" type="number" min="1" max="65535" value="5432"></label>
+                    <label><span>Database / Oracle service / SQLite filename</span><input id="db-database" maxlength="128" autocomplete="off" required></label>
+                    <label><span>Schema (optional)</span><input id="db-schema" maxlength="128" autocomplete="off"></label>
+                    <label data-db-network><span>Database username</span><input id="db-username" maxlength="128" autocomplete="off"></label>
+                    <label data-db-network><span>Database password</span><input id="db-password" type="password" maxlength="1024" autocomplete="new-password" placeholder="Leave blank to keep saved password"></label>
+                  </div>
+                  <label data-db-network class="check-row"><input id="db-tls" type="checkbox" checked><span>Verify TLS certificate and hostname</span></label>
+                  <label><span>Allowed tables / views (comma-separated)</span><textarea id="db-tables" rows="3" placeholder="revenue, customers, orders"></textarea></label>
+                  <p id="db-driver-note" class="card-copy"></p>
+                  <label class="check-row"><input id="db-read-only" type="checkbox" required><span>I use a dedicated SELECT-only account, without write or administrative grants.</span></label>
+                  <label class="check-row"><input id="db-egress" type="checkbox" required><span>I approve sending selected schema and query results to the configured AI provider.</span></label>
+                  <p class="card-copy">Table selection is not a replacement for database permissions. External sources are restricted to Nexus administrators.</p>
+                </fieldset>
+              </fieldset>
+              <div id="db-test-result" class="db-test-result hidden" role="status"></div>
+              <div class="db-actions">
+                <button id="db-test" type="button" class="button button--secondary">Test and list tables</button>
+                <button id="db-save" type="submit" class="button button--primary">Save and activate</button>
+              </div>
+            </form>
           </article>
 
           <article class="admin-card admin-card--ldap">

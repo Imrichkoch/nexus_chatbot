@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -53,6 +54,11 @@ def build_app():
         ldap_authenticator=FakeLDAP(ROOT / 'artifacts' / 'ui-ldap-secret'),
         secure_cookies=False,
     )
+    app.state.database_connections.path.unlink(missing_ok=True)
+    external_root = app.state.database_connections.sqlite_root
+    external_root.mkdir(exist_ok=True)
+    with sqlite3.connect(external_root / 'ui-reporting.sqlite3') as db:
+        db.execute('CREATE TABLE IF NOT EXISTS revenue (country TEXT, amount INTEGER)')
 
     app.state.store.create_user(
         name="UI Admin",

@@ -9,7 +9,7 @@ The service has five principal boundaries:
 1. **Web client** — authentication, workspace selection, conversation rendering, admin controls, and responsive mobile navigation.
 2. **Application API** — validation, authorization, rate limiting, agent routing, and atomic persistence.
 3. **Primary SQLite database** — accounts, sessions, conversations, messages, settings, audit events, and RAG documents.
-4. **Synthetic SQLite database** — deterministic fictional business data available only to the Data agent.
+4. **Reporting source** — deterministic fictional SQLite by default; optionally an admin-configured external SQL database. Each request takes an immutable source snapshot; external credentials stay outside prompts and the primary SQLite database. See [connector architecture and limits](DATABASE_CONNECTIONS.md).
 5. **Infrastructure data plane** — a persisted sanitized snapshot and an admin-only bounded LIVE collector.
 
 ## 2. Request flow

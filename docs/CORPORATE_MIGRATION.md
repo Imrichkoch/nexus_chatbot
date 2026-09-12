@@ -132,6 +132,13 @@ explicit data reconciliation decision; do not silently discard those writes.
 
 ## Operations and remaining acceptance criteria
 
+External Data sources are now configured separately in A5. Follow
+[External reporting databases](DATABASE_CONNECTIONS.md) before activation. Include
+the protected `database-connection.json` in encrypted backups, transfer database
+CA trust, install any required vendor driver, and test the target database's
+SELECT-only account and network rules. SQLite external files require their own
+approved read-only mount and backup plan.
+
 `/health` is liveness; `/ready` checks primary DB access without provider calls.
 Every response passing the application security middleware has `X-Request-ID`.
 Chat timing logs separate RAG from provider latency. Administrators can retrieve
