@@ -3,6 +3,25 @@ import sqlite3
 from nexus.store import Store
 
 
+class FakeEmbeddingProvider:
+    model_name = "test/multilingual"
+
+    @staticmethod
+    def _vector(text):
+        normalized = text.casefold()
+        if any(word in normalized for word in ("odchod", "deprovision", "offboarding")):
+            return [1.0, 0.0, 0.0]
+        if any(word in normalized for word in ("faktúra", "invoice")):
+            return [0.0, 1.0, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    def embed_passages(self, texts):
+        return [self._vector(text) for text in texts]
+
+    def embed_query(self, text):
+        return self._vector(text)
+
+
 def test_store_provisions_ldap_users_without_granting_admin(tmp_path):
     store = Store(str(tmp_path / "ldap-users.sqlite3"))
 
@@ -34,6 +53,49 @@ def test_rag_search_discards_passages_far_below_the_best_score(tmp_path):
 
     assert results
     assert {result["document"] for result in results} == {"strong.md"}
+
+
+def test_hybrid_rag_finds_semantic_match_without_shared_words(tmp_path):
+    store = Store(
+        str(tmp_path / "rag-hybrid.sqlite3"),
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    store.create_rag_document(
+        "offboarding.md",
+        "Deprovisioning procedure: disable SSO, revoke VPN and archive the mailbox.",
+    )
+    store.create_rag_document(
+        "billing.md",
+        "Invoice approval requires a purchase order and cost centre.",
+    )
+
+    results = store.search_rag("Čo treba spraviť pri odchode kolegu?", 3)
+
+    assert results[0]["document"] == "offboarding.md"
+    assert results[0]["retrieval"] in {"vector", "hybrid"}
+
+
+def test_rag_embedding_index_can_rebuild_existing_chunks(tmp_path):
+    database_path = tmp_path / "rag-reindex.sqlite3"
+    lexical_store = Store(str(database_path))
+    lexical_store.create_rag_document("offboarding.md", "Deprovisioning procedure for staff.")
+
+    hybrid_store = Store(
+        str(database_path), embedding_provider=FakeEmbeddingProvider()
+    )
+    result = hybrid_store.reindex_rag_embeddings()
+
+    assert result == {"indexed": 1, "model": "test/multilingual"}
+    with hybrid_store.connection() as db:
+        row = db.execute(
+            "SELECT model, dimensions, length(vector) AS bytes "
+            "FROM rag_chunk_embeddings"
+        ).fetchone()
+    assert dict(row) == {
+        "model": "test/multilingual",
+        "dimensions": 3,
+        "bytes": 12,
+    }
 
 
 def test_legacy_mixed_conversation_is_split_without_losing_messages(tmp_path):

@@ -5,6 +5,16 @@ from conftest import login, register
 from nexus.ai import AIUnavailable
 
 
+class ApiEmbeddingProvider:
+    model_name = 'test/api-embedding'
+
+    def embed_passages(self, texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    def embed_query(self, text):
+        return [1.0, 0.0]
+
+
 def test_user_can_create_conversation_and_receive_ai_reply(client, app, caplog):
     caplog.set_level(logging.INFO, logger="uvicorn.error.nexuschat")
     assert register(client).status_code == 201
@@ -170,6 +180,30 @@ def test_enabled_rag_injects_relevant_chunks_and_returns_sources(client, app):
     assert "[KB:runbook.md#1]" in call["system_prompt"]
     assert "redis-server" in call["system_prompt"]
     assert response.json()["assistant"]["sources"][0]["document"] == "runbook.md"
+
+
+def test_admin_can_inspect_and_reindex_local_rag_embeddings(client, app):
+    assert login(client, "admin@example.test", "AdminPass!2026").status_code == 200
+    client.post(
+        "/api/admin/rag/documents",
+        json={"name": "legacy.md", "content": "Previously uploaded knowledge."},
+    )
+    app.state.store.embedding_provider = ApiEmbeddingProvider()
+
+    before = client.get('/api/admin/rag/embeddings')
+    rebuilt = client.post('/api/admin/rag/embeddings/reindex')
+    after = client.get('/api/admin/rag/embeddings')
+
+    assert before.json()['indexed_chunks'] == 0
+    assert rebuilt.status_code == 200
+    assert rebuilt.json() == {'indexed': 1, 'model': 'test/api-embedding'}
+    assert after.json() == {
+        'enabled': True,
+        'model': 'test/api-embedding',
+        'indexed_chunks': 1,
+        'total_chunks': 1,
+        'mode': 'hybrid',
+    }
 
 
 def test_infra_agent_is_disabled_by_default(client):

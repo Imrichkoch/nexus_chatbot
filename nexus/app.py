@@ -24,6 +24,7 @@ from nexus.config import RuntimeConfig
 from nexus.database_connection import (
     ConnectionSettings, ConnectionConfigurationError, ConnectionConflict, DatabaseConnections, DatabaseProfilePayload,
 )
+from nexus.embeddings import EmbeddingError, embedding_provider_from_env
 from nexus.infra_connection import (
     InfraConnectionPayload, InfraConnectionError, InfraConnectionConflict, InfraConnections,
 )
@@ -207,6 +208,7 @@ def create_app(
     synthetic_database_path: str | None = None,
     ldap_authenticator: Any | None = None,
     ldap_secret_path: str | None = None,
+    embedding_provider: Any | None = None,
     secure_cookies: bool | None = None,
 ) -> FastAPI:
     secure_cookies = secure_cookies if secure_cookies is not None else os.getenv('NEXUS_SECURE_COOKIES', '1') == '1'
@@ -221,9 +223,14 @@ def create_app(
         TrustedHostMiddleware,
         allowed_hosts=runtime.allowed_hosts,
     )
+    rag_embedding_provider = (
+        embedding_provider if embedding_provider is not None
+        else embedding_provider_from_env()
+    )
     app.state.store = Store(
         database_path
-        or os.getenv("NEXUS_DATABASE", "/opt/nexuschat/data/nexus.sqlite3")
+        or os.getenv("NEXUS_DATABASE", "/opt/nexuschat/data/nexus.sqlite3"),
+        embedding_provider=rag_embedding_provider,
     )
     app.state.ai_provider = ai_provider or OpenAIProvider()
     app.state.model_catalog = model_catalog or OpenRouterModelCatalog()
@@ -279,6 +286,11 @@ def create_app(
     @app.exception_handler(StorageQuotaExceeded)
     async def storage_quota_error(request, error):
         return JSONResponse({'detail': str(error)}, status_code=413)
+
+    @app.exception_handler(EmbeddingError)
+    async def embedding_error(request, error):
+        LOGGER.exception('Local RAG embedding operation failed')
+        return JSONResponse({'detail': str(error)}, status_code=503)
 
     @app.exception_handler(ConnectionConfigurationError)
     async def database_configuration_error(request, error):
@@ -1473,6 +1485,23 @@ def create_app(
             'characters': sum(document['character_count'] for document in documents),
             'max_characters': int(os.getenv('NEXUS_RAG_MAX_CHARACTERS', '200000000')),
         }}
+
+    @app.get('/api/admin/rag/embeddings')
+    def admin_rag_embeddings(user: dict[str, Any] = Depends(admin_user)):
+        return app.state.store.rag_embedding_status()
+
+    @app.post('/api/admin/rag/embeddings/reindex')
+    def admin_reindex_rag_embeddings(actor: dict[str, Any] = Depends(admin_user)):
+        if not app.state.limiter.check(f'rag-reindex:{actor["id"]}', 2, 300):
+            raise HTTPException(status_code=429, detail='Embedding reindex is rate limited.')
+        try:
+            result = app.state.store.reindex_rag_embeddings()
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        app.state.store.audit(
+            actor['id'], 'rag.embeddings.reindex', f'chunks:{result["indexed"]}'
+        )
+        return result
 
     @app.get('/api/admin/audit')
     def admin_audit(limit: int = 100, before_id: int | None = None,

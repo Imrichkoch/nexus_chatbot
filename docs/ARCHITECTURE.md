@@ -18,7 +18,7 @@ The service has five principal boundaries:
 
 1. The API verifies the server-side session and conversation owner.
 2. It confirms that the conversation belongs to the `general` workspace.
-3. If RAG is enabled, an FTS5 query selects a bounded number of relevant chunks.
+3. If RAG is enabled, FTS5/BM25 selects lexical candidates. When local embeddings are enabled, cosine similarity adds semantic candidates and weighted reciprocal-rank fusion produces the bounded final set.
 4. The system instructions, optional knowledge context, and recent messages are sent to the model provider.
 5. Text deltas are streamed to the browser as NDJSON while the provider generates them.
 6. The user and complete assistant messages are committed in one SQLite transaction after successful completion.
@@ -28,8 +28,15 @@ The service has five principal boundaries:
 Administrators can select or drag up to 1,000 files per batch. The browser validates a
 10 MiB per-file limit and a 50 MiB batch limit, then sends one batch request. The API
 validates every document before `Store.create_rag_documents()` inserts all metadata,
-chunks, and FTS rows in one transaction. One invalid file rejects the complete batch.
-The application does not impose a global document-count ceiling.
+chunks, FTS rows, and optional embeddings in one transaction. One invalid file or
+embedding failure rejects the complete batch. The default global quota is 1,000
+documents and 200 million source characters; both values are configurable.
+
+Embeddings are optional and affect only the Nexus/Infra RAG retrieval path. The
+default local provider uses FastEmbed's multilingual ONNX model and stores float32
+vectors in SQLite. Existing chunks can be indexed from Administration without
+re-uploading their source documents. Infra collection and Data SQL routing do not
+use the embedding provider.
 
 ### Infra assistant
 
@@ -74,6 +81,7 @@ Older databases are migrated automatically. If one legacy conversation contains 
 | `audit_log` | Administrative changes and LIVE Infra reads |
 | `rag_documents` / `rag_chunks` | Knowledge-base metadata and chunks |
 | `rag_chunks_fts` | SQLite FTS5 search index |
+| `rag_chunk_embeddings` | Optional local model name, dimensions, and float32 vector per chunk |
 
 ## 5. Model provider abstraction
 

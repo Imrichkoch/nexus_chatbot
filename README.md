@@ -19,6 +19,7 @@ permissions and SSO/MFA require additional integration.
 - OpenAI Responses API support plus OpenAI-compatible Chat Completions endpoints
 - Configurable model routing for each agent
 - Local SQLite FTS5 retrieval-augmented generation (RAG) with drag-and-drop multi-file ingestion
+- Optional local multilingual FastEmbed/ONNX embeddings with hybrid BM25 + cosine retrieval
 - Sanitized infrastructure snapshot refreshed by a hardened systemd timer
 - Admin-only LIVE Infra checks with a fixed read-only collector and successful-read audit logging
 - Synthetic commerce database with natural-language-to-SQL reporting
@@ -166,6 +167,31 @@ The upload selection accepts up to 1,000 files. The whole knowledge base also de
 #### Retrieval
 
 For a Nexus or Infra question, `fts_query()` extracts up to 12 meaningful query terms. SQLite FTS5 first ranks a wider candidate set with BM25. `Store.search_rag()` keeps passages whose score strength is at least 20% of the best match, then applies the configured result limit. The admin field **Max. passages** defaults to 6 and remains bounded to 1–12. Weak matches are omitted instead of padding every request to the configured maximum.
+
+### Local hybrid embeddings
+
+Set `NEXUS_RAG_EMBEDDINGS_ENABLED=1` to add local semantic retrieval. Nexus uses
+FastEmbed with the multilingual ONNX model
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`; document chunks
+and questions stay on the machine. Vectors are stored as float32 BLOBs in
+`rag_chunk_embeddings` inside the existing SQLite database. Search combines
+BM25 and cosine candidates with weighted reciprocal-rank fusion, so exact codes
+and names keep their lexical signal while paraphrased questions gain semantic
+matches.
+
+On Windows, install dependencies and start the local embedding build with:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+.\deploy\run-local-embeddings.ps1
+```
+
+The first embedding operation downloads the model into
+`data\embedding-models`. In Administration → Knowledge / RAG, use **Reindex
+embeddings** once to add vectors for documents uploaded before embeddings were
+enabled. Newly uploaded files are embedded transactionally. If model generation
+fails, the upload or reindex fails instead of silently pretending hybrid search
+was used.
 
 Retrieved chunks are added to the system prompt with a stable marker such as `[KB:runbook.md#3]`. The assistant is instructed to use only relevant context and cite those markers. Source metadata is also stored with the assistant message so the UI can render the provenance.
 
@@ -351,6 +377,10 @@ The synthetic reporting database is created and seeded automatically. Infra snap
 | `NEXUS_INFRA_WINRM_SECRET_ROOT` | Mode-`0600` WinRM password directory | beside the primary database |
 | `NEXUS_INFRA_CA_ROOT` | Approved private-CA certificate directory for WinRM HTTPS | beside the primary database |
 | `NEXUS_LDAP_SECRET_PATH` | LDAP service-bind password file | `/opt/nexuschat/data/ldap-bind-password` |
+| `NEXUS_RAG_EMBEDDINGS_ENABLED` | Enable local hybrid semantic retrieval for RAG | `0` |
+| `NEXUS_RAG_EMBEDDING_MODEL` | FastEmbed model identifier | multilingual MiniLM L12 v2 |
+| `NEXUS_RAG_EMBEDDING_CACHE` | Local ONNX model cache | FastEmbed default; local script uses `data/embedding-models` |
+| `NEXUS_RAG_EMBEDDING_THREADS` | CPU inference thread count | runtime default; local script uses `4` |
 | `NEXUS_DEFAULT_MODEL` | General assistant model | `gpt-5.6-luna` if unset; `.env.example` selects Terra |
 | `NEXUS_INFRA_MODEL` | Infra assistant model | general model |
 | `NEXUS_DATA_MODEL` | SQL/reporting model | general model |

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import secrets
 import sqlite3
+import struct
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -42,8 +44,9 @@ def public_user(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
 
 
 class Store:
-    def __init__(self, database_path: str):
+    def __init__(self, database_path: str, embedding_provider: Any | None = None):
         self.database_path = database_path
+        self.embedding_provider = embedding_provider
         if database_path != ":memory:":
             Path(database_path).parent.mkdir(parents=True, exist_ok=True)
         self._memory_connection: sqlite3.Connection | None = None
@@ -155,6 +158,15 @@ class Store:
                         REFERENCES rag_documents(id) ON DELETE CASCADE,
                     chunk_index INTEGER NOT NULL,
                     content TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS rag_chunk_embeddings (
+                    chunk_id INTEGER PRIMARY KEY
+                        REFERENCES rag_chunks(id) ON DELETE CASCADE,
+                    model TEXT NOT NULL,
+                    dimensions INTEGER NOT NULL,
+                    vector BLOB NOT NULL,
+                    created_at TEXT NOT NULL
                 );
 
                 CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks_fts USING fts5(
@@ -812,6 +824,17 @@ class Store:
     ) -> list[dict[str, Any]]:
         """Insert a validated document batch in one SQLite transaction."""
         prepared = [(name, content, chunk_text(content)) for name, content in documents]
+        embedded: list[list[list[float]]] | None = None
+        if self.embedding_provider:
+            flat_chunks = [chunk for _, _, chunks in prepared for chunk in chunks]
+            flat_vectors = self.embedding_provider.embed_passages(flat_chunks)
+            if len(flat_vectors) != len(flat_chunks):
+                raise ValueError('The embedding model returned an incomplete batch.')
+            embedded = []
+            offset = 0
+            for _, _, chunks in prepared:
+                embedded.append(flat_vectors[offset : offset + len(chunks)])
+                offset += len(chunks)
         created: list[dict[str, Any]] = []
         with self.connection() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -822,7 +845,7 @@ class Store:
             max_characters = int(os.getenv('NEXUS_RAG_MAX_CHARACTERS', '200000000'))
             if count + len(documents) > max_files or characters + sum(len(content) for _, content in documents) > max_characters:
                 raise StorageQuotaExceeded('Knowledge base capacity exceeded. Remove documents or ask an administrator to increase the deployment quota.')
-            for name, content, chunks in prepared:
+            for document_offset, (name, content, chunks) in enumerate(prepared):
                 cursor = db.execute(
                     """
                     INSERT INTO rag_documents
@@ -844,6 +867,22 @@ class Store:
                         "INSERT INTO rag_chunks_fts(rowid, content) VALUES (?, ?)",
                         (chunk_cursor.lastrowid, chunk),
                     )
+                    if embedded is not None:
+                        vector = embedded[document_offset][index - 1]
+                        db.execute(
+                            """
+                            INSERT INTO rag_chunk_embeddings
+                                (chunk_id, model, dimensions, vector, created_at)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                chunk_cursor.lastrowid,
+                                self.embedding_provider.model_name,
+                                len(vector),
+                                self._pack_vector(vector),
+                                utc_now(),
+                            ),
+                        )
                 row = db.execute(
                     "SELECT * FROM rag_documents WHERE id = ?", (document_id,)
                 ).fetchone()
@@ -876,14 +915,77 @@ class Store:
             )
         return cursor.rowcount > 0
 
-    def search_rag(self, query: str, limit: int) -> list[dict[str, Any]]:
+    @staticmethod
+    def _pack_vector(vector: list[float]) -> bytes:
+        return struct.pack(f'<{len(vector)}f', *vector)
+
+    @staticmethod
+    def _unpack_vector(value: bytes, dimensions: int) -> tuple[float, ...]:
+        if len(value) != dimensions * 4:
+            raise ValueError('Stored embedding dimensions do not match its vector data.')
+        return struct.unpack(f'<{dimensions}f', value)
+
+    @staticmethod
+    def _cosine(left, right) -> float:
+        if len(left) != len(right):
+            return -1.0
+        dot = sum(a * b for a, b in zip(left, right))
+        left_norm = math.sqrt(sum(value * value for value in left))
+        right_norm = math.sqrt(sum(value * value for value in right))
+        return dot / (left_norm * right_norm) if left_norm and right_norm else 0.0
+
+    def reindex_rag_embeddings(self) -> dict[str, Any]:
+        if not self.embedding_provider:
+            raise ValueError('Local RAG embeddings are not enabled.')
+        with self.connection() as db:
+            chunks = db.execute(
+                'SELECT id, content FROM rag_chunks ORDER BY id'
+            ).fetchall()
+        vectors = self.embedding_provider.embed_passages(
+            [row['content'] for row in chunks]
+        )
+        if len(vectors) != len(chunks):
+            raise ValueError('The embedding model returned an incomplete batch.')
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('DELETE FROM rag_chunk_embeddings')
+            for row, vector in zip(chunks, vectors):
+                db.execute(
+                    """
+                    INSERT INTO rag_chunk_embeddings
+                        (chunk_id, model, dimensions, vector, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (row['id'], self.embedding_provider.model_name, len(vector),
+                     self._pack_vector(vector), utc_now()),
+                )
+        return {'indexed': len(chunks), 'model': self.embedding_provider.model_name}
+
+    def rag_embedding_status(self) -> dict[str, Any]:
+        with self.connection() as db:
+            total = int(db.execute('SELECT count(*) FROM rag_chunks').fetchone()[0])
+            indexed = int(db.execute(
+                'SELECT count(*) FROM rag_chunk_embeddings WHERE model = ?',
+                (self.embedding_provider.model_name if self.embedding_provider else '',),
+            ).fetchone()[0])
+        return {
+            'enabled': self.embedding_provider is not None,
+            'model': (
+                self.embedding_provider.model_name if self.embedding_provider else None
+            ),
+            'indexed_chunks': indexed,
+            'total_chunks': total,
+            'mode': 'hybrid' if self.embedding_provider else 'lexical',
+        }
+
+    def _search_rag_lexical(self, query: str, limit: int) -> list[dict[str, Any]]:
         match = fts_query(query)
         if not match:
             return []
         with self.connection() as db:
             rows = db.execute(
                 """
-                SELECT d.name AS document, c.chunk_index, c.content,
+                SELECT c.id, d.name AS document, c.chunk_index, c.content,
                        bm25(rag_chunks_fts) AS score
                 FROM rag_chunks_fts
                 JOIN rag_chunks c ON c.id = rag_chunks_fts.rowid
@@ -906,6 +1008,64 @@ class Store:
             for candidate in candidates
             if abs(float(candidate["score"])) >= best_strength * 0.20
         ][:requested]
+
+    def _search_rag_vector(self, query: str, limit: int) -> list[dict[str, Any]]:
+        if not self.embedding_provider:
+            return []
+        query_vector = self.embedding_provider.embed_query(query)
+        with self.connection() as db:
+            rows = db.execute(
+                """
+                SELECT c.id, d.name AS document, c.chunk_index, c.content,
+                       e.dimensions, e.vector
+                FROM rag_chunk_embeddings e
+                JOIN rag_chunks c ON c.id = e.chunk_id
+                JOIN rag_documents d ON d.id = c.document_id
+                WHERE e.model = ?
+                """,
+                (self.embedding_provider.model_name,),
+            ).fetchall()
+        candidates = []
+        for row in rows:
+            candidate = dict(row)
+            candidate['score'] = self._cosine(
+                query_vector,
+                self._unpack_vector(candidate.pop('vector'), candidate.pop('dimensions')),
+            )
+            if candidate['score'] > 0.15:
+                candidates.append(candidate)
+        candidates.sort(key=lambda item: item['score'], reverse=True)
+        return candidates[:max(4, min(limit, 12) * 4)]
+
+    def search_rag(self, query: str, limit: int) -> list[dict[str, Any]]:
+        requested = max(1, min(limit, 12))
+        lexical = self._search_rag_lexical(query, requested)
+        if not self.embedding_provider:
+            for candidate in lexical:
+                candidate['retrieval'] = 'lexical'
+            return lexical
+        vector = self._search_rag_vector(query, requested)
+        combined: dict[int, dict[str, Any]] = {}
+        ranks: dict[int, set[str]] = {}
+        scores: dict[int, float] = {}
+        for method, weight, candidates in (
+            ('lexical', 0.45, lexical), ('vector', 0.55, vector)
+        ):
+            for rank, candidate in enumerate(candidates, start=1):
+                chunk_id = int(candidate['id'])
+                combined[chunk_id] = candidate
+                ranks.setdefault(chunk_id, set()).add(method)
+                scores[chunk_id] = scores.get(chunk_id, 0.0) + weight / (60 + rank)
+        ordered = sorted(combined, key=lambda chunk_id: scores[chunk_id], reverse=True)
+        results = []
+        for chunk_id in ordered[:requested]:
+            candidate = combined[chunk_id]
+            candidate['score'] = scores[chunk_id]
+            candidate['retrieval'] = (
+                'hybrid' if len(ranks[chunk_id]) == 2 else next(iter(ranks[chunk_id]))
+            )
+            results.append(candidate)
+        return results
 
     def get_settings(self) -> dict[str, str]:
         with self.connection() as db:

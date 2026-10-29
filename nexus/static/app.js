@@ -143,6 +143,10 @@ const TRANSLATIONS = {
   ragCopy: { en: "Local knowledge base. Relevant passages are attached to the question and sources are shown with the answer.", sk: "Lokálna znalostná báza. Relevantné pasáže sa pripájajú k otázke a v odpovedi sa zobrazia zdroje." },
   maxPassages: { en: "Max. passages", sk: "Max. počet pasáží" },
   ragCapacity: { en: '{count}/{max} documents in the knowledge base', sk: '{count}/{max} dokumentov v znalostnej báze' },
+  ragReindexEmbeddings: { en: 'Reindex embeddings', sk: 'Preindexovať embeddingy' },
+  ragEmbeddingDisabled: { en: 'LEXICAL / FTS5 · local embeddings disabled', sk: 'LEXICAL / FTS5 · lokálne embeddingy vypnuté' },
+  ragEmbeddingStatus: { en: 'HYBRID · {indexed}/{total} chunks · {model}', sk: 'HYBRID · {indexed}/{total} častí · {model}' },
+  ragEmbeddingReindexed: { en: 'Embedding index rebuilt: {count} chunks.', sk: 'Embedding index obnovený: {count} častí.' },
   addFiles: { en: "＋ ADD OR DROP FILES", sk: "＋ PRIDAŤ ALEBO PRETIAHNUŤ SÚBORY" },
   fileLimits: { en: "TXT, MD, JSON, YAML, CSV, or LOG · max 1000 at once · 10 MB/file · 50 MB/batch", sk: "TXT, MD, JSON, YAML, CSV alebo LOG · max 1000 naraz · 10 MB/súbor · 50 MB/dávka" },
   infraToggle: { en: "Enable or disable Infra Agent", sk: "Zapnúť alebo vypnúť Infra Agenta" },
@@ -1404,11 +1408,12 @@ async function loadAdmin() {
   if (state.user?.role !== "admin") return;
   $("#admin-view").setAttribute("aria-busy", "true");
   try {
-    const [overview, users, settings, rag, infra, dataSchema, ldap, databaseConnection, profiles, infraProfiles] = await Promise.all([
+    const [overview, users, settings, rag, ragEmbeddings, infra, dataSchema, ldap, databaseConnection, profiles, infraProfiles] = await Promise.all([
       api("/admin/overview"),
       api("/admin/users"),
       api("/admin/settings"),
       api("/admin/rag/documents"),
+      api("/admin/rag/embeddings"),
       api("/admin/infra/status"),
       api("/admin/data/schema"),
       api("/admin/ldap"),
@@ -1443,6 +1448,7 @@ async function loadAdmin() {
     if (rag.capacity) $('#rag-capacity').textContent = t('ragCapacity', {
       count: rag.capacity.documents, max: rag.capacity.max_documents,
     });
+    renderRagEmbeddingStatus(ragEmbeddings);
     renderInfraStatus(infra);
     renderDataSchema(dataSchema.schema);
     if (!state.ldapDirty && !state.ldapBusy) renderLdapSettings(ldap);
@@ -1567,6 +1573,33 @@ function renderInfraStatus(status) {
     : t("snapshotUnavailable");
 }
 
+function renderRagEmbeddingStatus(status) {
+  const output = $('#rag-embedding-status');
+  output.textContent = status.enabled
+    ? t('ragEmbeddingStatus', {
+        indexed: status.indexed_chunks,
+        total: status.total_chunks,
+        model: status.model,
+      })
+    : t('ragEmbeddingDisabled');
+  $('#rag-reindex-embeddings').disabled = !status.enabled;
+}
+
+async function reindexRagEmbeddings() {
+  const button = $('#rag-reindex-embeddings');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const result = await api('/admin/rag/embeddings/reindex', { method: 'POST' });
+    toast(t('ragEmbeddingReindexed', { count: result.indexed }));
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    const status = await api('/admin/rag/embeddings').catch(() => null);
+    if (status) renderRagEmbeddingStatus(status);
+  }
+}
+
 async function uploadRagDocuments(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
@@ -1611,6 +1644,7 @@ async function uploadRagDocuments(fileList) {
     status.textContent = t("uploadDone", { count: created.documents.length });
     toast(t("filesAdded", { count: created.documents.length }));
     renderDocuments((await api("/admin/rag/documents")).documents);
+    renderRagEmbeddingStatus(await api('/admin/rag/embeddings'));
   } catch (error) {
     status.textContent = error.message;
     toast(error.message, "error");
@@ -2416,6 +2450,7 @@ function bindEvents() {
   $("#rag-file").addEventListener("change", (event) =>
     uploadRagDocuments(event.target.files),
   );
+  $('#rag-reindex-embeddings').addEventListener('click', reindexRagEmbeddings);
   const ragDrop = $("#rag-drop");
   ["dragenter", "dragover"].forEach((eventName) =>
     ragDrop.addEventListener(eventName, (event) => {
