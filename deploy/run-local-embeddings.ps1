@@ -1,6 +1,16 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$credentialPath = Join-Path $projectRoot 'data\provider-credentials.xml'
+if (Test-Path -LiteralPath $credentialPath) {
+    $protected = Import-Clixml -LiteralPath $credentialPath
+    $credentials = [System.Net.NetworkCredential]::new('', $protected).Password | ConvertFrom-Json
+    foreach ($property in $credentials.PSObject.Properties) {
+        [Environment]::SetEnvironmentVariable($property.Name, [string]$property.Value, 'Process')
+    }
+    $credentials = $null
+}
+Set-Location -LiteralPath $projectRoot
 $env:NEXUS_DATABASE = Join-Path $projectRoot 'data\nexus.sqlite3'
 $env:NEXUS_SYNTHETIC_DATABASE = Join-Path $projectRoot 'data\synthetic-business.sqlite3'
 $env:NEXUS_INFRA_SNAPSHOT = Join-Path $projectRoot 'data\infra-snapshot.json'
