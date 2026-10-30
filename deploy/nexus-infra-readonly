@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Fixed, JSON-only collector entrypoint for a restricted Nexus SSH account."""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+sys.path.insert(0, '/opt/nexuschat')
+
+from nexus.infra import collect_infra_state, read_snapshot
+
+
+def main():
+    original = os.getenv('SSH_ORIGINAL_COMMAND', '')
+    if original:
+        mode = {
+            '/usr/local/bin/nexus-infra-readonly snapshot': 'snapshot',
+            '/usr/local/bin/nexus-infra-readonly live': 'live',
+        }.get(original)
+    else:
+        mode = sys.argv[1] if len(sys.argv) == 2 else None
+    if mode not in {'snapshot', 'live'}:
+        raise SystemExit('usage: nexus-infra-readonly snapshot|live')
+    value = (collect_infra_state('live') if mode == 'live'
+             else read_snapshot('/opt/nexuschat/data/infra-snapshot.json'))
+    print(json.dumps(value, ensure_ascii=False, separators=(',', ':')))
+
+
+if __name__ == '__main__':
+    main()

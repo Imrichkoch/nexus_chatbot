@@ -48,7 +48,7 @@ The API key must never be stored in the repository or systemd unit itself.
 
 ## 4. Reverse proxy
 
-`deploy/nginx.conf.example` demonstrates hosting the app below `/nexus/`. Merge it into your own HTTPS server block and add your production host to `TrustedHostMiddleware` in `nexus/app.py`, then run:
+`deploy/nginx.conf.example` demonstrates hosting the app below `/nexus/`. Merge it into your own HTTPS server block, set `NEXUS_ALLOWED_HOSTS` to your production hostname and `NEXUS_BASE_PATH=/nexus`, then run:
 
 ```bash
 sudo nginx -t
@@ -57,8 +57,10 @@ sudo systemctl reload nginx
 
 The Uvicorn listener should remain bound to loopback unless another authenticated network layer is intentionally used.
 
-The proxy template permits 12 MiB request bodies for the application's 10 MiB
-per-file RAG limit. Keep both values aligned if the upload limit changes.
+The proxy template permits 64 MiB request bodies for the application's 50 MiB raw
+RAG batch limit plus JSON framing overhead. It also disables response buffering so
+NDJSON chat deltas reach the browser immediately. Keep the proxy body limit above
+the application batch limit if either value changes.
 
 ## 5. Infra snapshot timer
 
@@ -102,3 +104,7 @@ Verify backups by opening a copy and running `PRAGMA integrity_check;`.
 9. Confirm database integrity, service status, and error-free logs.
 
 Keep the previous code archive and database backup as the rollback pair.
+
+Keep the matching Python environment too: a code-only rollback does not restore
+dependencies. See [Corporate migration](CORPORATE_MIGRATION.md) for the verified
+backup/restore CLI, container deployment and target-environment acceptance checks.

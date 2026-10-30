@@ -8,6 +8,7 @@ artifacts/
 .env.*
 !.env.example
 data/
+database-connection.json
 *.log
 *.tar
 *.tar.gz

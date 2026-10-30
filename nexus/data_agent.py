@@ -22,6 +22,28 @@ FORBIDDEN_SQL = re.compile(
     re.IGNORECASE,
 )
 
+DESTRUCTIVE_SQL_REQUEST = re.compile(
+    r"^\s*(?:"
+    r"(?:(?:please\s+)?(?:execute|run)(?:\s+the)?(?:\s+sql)?|"
+    r"(?:pros[ií]m\s+)?(?:vykonaj|spusti)(?:\s+sql)?)\s+"
+    r")?(?P<operation>"
+    r"drop\s+(?:table|index|view|trigger)|delete\s+from|insert\s+into|"
+    r"update\s+[a-zA-Z_][\w.]*\s+set|alter\s+table|"
+    r"create\s+(?:table|index|view|trigger)|truncate\s+table|"
+    r"replace\s+into|attach\s+database|detach\s+database|"
+    r"pragma\b|vacuum\b|reindex\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def destructive_sql_operation(question: str) -> str | None:
+    """Return a normalized mutation phrase only for an SQL execution request."""
+    match = DESTRUCTIVE_SQL_REQUEST.match(question)
+    if not match:
+        return None
+    return " ".join(match.group("operation").upper().split())
+
 DENIED_ACTIONS = {
     value
     for name in (
@@ -66,6 +88,8 @@ UNSAFE_FUNCTIONS = {
 
 
 class SyntheticDatabase:
+    fictional = True
+    label = 'Synthetic Business DB'
     def __init__(self, path: str):
         self.path = str(Path(path))
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -345,7 +369,7 @@ class SyntheticDatabase:
                     + ")"
                 )
         return (
-            "Dáta sú úplne fiktívne a mena je EUR.\n"
+            "SQL dialect: sqlite. Dáta sú úplne fiktívne a mena je EUR.\n"
             + "\n".join(definitions)
             + "\nVzťahy: orders.customer_id -> customers.id; "
             "order_items.order_id -> orders.id; "
@@ -494,6 +518,9 @@ class DataReportAgent:
             output_tokens += int(repaired.get("output_tokens", 0))
             query_result = self.database.execute(sql)
 
+        sql = query_result.get('executed_sql', sql)
+        query_result['fictional'] = self.database.fictional
+        query_result['database_label'] = self.database.label
         report = self.ai_provider.create_sql_report(
             question=question,
             sql=sql,
@@ -509,7 +536,8 @@ class DataReportAgent:
             "output_tokens": output_tokens + int(report.get("output_tokens", 0)),
             "source": {
                 "type": "sql",
-                "label": "Synthetic Business DB",
+                "label": self.database.label,
+                "fictional": self.database.fictional,
                 "query": sql,
                 "row_count": query_result["row_count"],
                 "truncated": query_result["truncated"],

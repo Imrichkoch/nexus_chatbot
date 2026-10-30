@@ -2,7 +2,19 @@ import sqlite3
 
 import pytest
 
-from nexus.data_agent import QueryRejected, SyntheticDatabase
+from nexus.data_agent import (
+    QueryRejected,
+    SyntheticDatabase,
+    destructive_sql_operation,
+)
+
+
+def test_destructive_sql_execution_requests_are_detected_without_false_positives():
+    assert destructive_sql_operation("Execute DROP TABLE customers") == "DROP TABLE"
+    assert destructive_sql_operation("DELETE FROM orders") == "DELETE FROM"
+    assert destructive_sql_operation("Prosím spusti ALTER TABLE users") == "ALTER TABLE"
+    assert destructive_sql_operation("Explain what DROP TABLE means") is None
+    assert destructive_sql_operation("Show products whose sales dropped") is None
 
 
 def test_synthetic_database_is_seeded_with_related_business_data(tmp_path):

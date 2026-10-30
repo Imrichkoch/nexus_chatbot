@@ -1,0 +1,6 @@
+*
+!requirements.txt
+!nexus/
+!nexus/**
+**/__pycache__
+**/*.pyc

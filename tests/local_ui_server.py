@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ SYNTHETIC_DATABASE = ROOT / "artifacts" / "ui-synthetic-business.sqlite3"
 
 
 def build_app():
+    DATABASE.parent.mkdir(parents=True, exist_ok=True)
     if DATABASE.exists():
         DATABASE.unlink()
     SNAPSHOT.write_text(
@@ -29,7 +31,7 @@ def build_app():
         ),
         encoding="utf-8",
     )
-    from conftest import FakeAI, FakeModelCatalog
+    from conftest import FakeAI, FakeModelCatalog, FakeLDAP
     from nexus.app import create_app
 
     def collect_live_infra():
@@ -49,8 +51,22 @@ def build_app():
         infra_snapshot_path=str(SNAPSHOT),
         live_infra_collector=collect_live_infra,
         synthetic_database_path=str(SYNTHETIC_DATABASE),
+        ldap_authenticator=FakeLDAP(ROOT / 'artifacts' / 'ui-ldap-secret'),
         secure_cookies=False,
     )
+    app.state.database_connections.path.unlink(missing_ok=True)
+    app.state.infra_connections.path.unlink(missing_ok=True)
+    app.state.infra_connections.remote_collector = lambda settings, mode: {
+        'generated_at': '2026-09-12T09:00:00+00:00',
+        'hostname': settings.host,
+        'memory': {'used_mb': 1024, 'total_mb': 4096},
+        'services': [{'name': 'nexuschat', 'active': True}],
+        'scope': 'sanitized_read_only', 'collection_mode': mode,
+    }
+    external_root = app.state.database_connections.sqlite_root
+    external_root.mkdir(exist_ok=True)
+    with sqlite3.connect(external_root / 'ui-reporting.sqlite3') as db:
+        db.execute('CREATE TABLE IF NOT EXISTS revenue (country TEXT, amount INTEGER)')
 
     app.state.store.create_user(
         name="UI Admin",
