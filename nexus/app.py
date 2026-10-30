@@ -238,34 +238,35 @@ def create_app(
         "NEXUS_INFRA_SNAPSHOT", "/opt/nexuschat/data/infra-snapshot.json"
     )
     app.state.live_infra_collector = live_infra_collector or collect_infra_state
-    app.state.infra_connections = InfraConnections(
-        Path(os.getenv('NEXUS_INFRA_CONNECTION_PATH') or Path(app.state.store.database_path).parent / 'infra-connections.json'),
-        local_snapshot_path=app.state.infra_snapshot_path,
-        local_live_collector=lambda: app.state.live_infra_collector(),
-        key_root=Path(os.getenv('NEXUS_INFRA_SSH_KEY_ROOT') or Path(app.state.store.database_path).parent / 'infra-ssh-keys'),
-        known_hosts=Path(os.getenv('NEXUS_INFRA_KNOWN_HOSTS') or Path(app.state.store.database_path).parent / 'infra-known-hosts'),
-        secret_root=Path(os.getenv('NEXUS_INFRA_WINRM_SECRET_ROOT') or Path(app.state.store.database_path).parent / 'infra-winrm-secrets'),
-        ca_root=Path(os.getenv('NEXUS_INFRA_CA_ROOT') or Path(app.state.store.database_path).parent / 'infra-ca'),
-    )
-    app.state.infra_connections.bound_count = app.state.store.infra_connection_usage
-    app.state.store.bind_legacy_infra_chats()
-    app.state.synthetic_database = SyntheticDatabase(
-        synthetic_database_path
-        or os.getenv(
-            "NEXUS_SYNTHETIC_DATABASE",
-            "/opt/nexuschat/data/synthetic-business.sqlite3",
+    if os.getenv('NEXUS_RAG_ONLY') != '1':
+        app.state.infra_connections = InfraConnections(
+            Path(os.getenv('NEXUS_INFRA_CONNECTION_PATH') or Path(app.state.store.database_path).parent / 'infra-connections.json'),
+            local_snapshot_path=app.state.infra_snapshot_path,
+            local_live_collector=lambda: app.state.live_infra_collector(),
+            key_root=Path(os.getenv('NEXUS_INFRA_SSH_KEY_ROOT') or Path(app.state.store.database_path).parent / 'infra-ssh-keys'),
+            known_hosts=Path(os.getenv('NEXUS_INFRA_KNOWN_HOSTS') or Path(app.state.store.database_path).parent / 'infra-known-hosts'),
+            secret_root=Path(os.getenv('NEXUS_INFRA_WINRM_SECRET_ROOT') or Path(app.state.store.database_path).parent / 'infra-winrm-secrets'),
+            ca_root=Path(os.getenv('NEXUS_INFRA_CA_ROOT') or Path(app.state.store.database_path).parent / 'infra-ca'),
         )
-    )
-    app.state.data_agent = DataReportAgent(
-        app.state.synthetic_database, app.state.ai_provider
-    )
-    app.state.database_connections = DatabaseConnections(
-        Path(os.getenv('NEXUS_DB_CONNECTION_PATH') or Path(app.state.store.database_path).parent / 'database-connection.json'),
-        app.state.synthetic_database,
-        sqlite_root=Path(os.getenv('NEXUS_EXTERNAL_SQLITE_ROOT') or Path(app.state.store.database_path).parent / 'external-databases'),
-    )
-    app.state.database_connections.bound_count = app.state.store.database_connection_usage
-    app.state.store.bind_legacy_database_chats(app.state.database_connections.default_id())
+        app.state.infra_connections.bound_count = app.state.store.infra_connection_usage
+        app.state.store.bind_legacy_infra_chats()
+        app.state.synthetic_database = SyntheticDatabase(
+            synthetic_database_path
+            or os.getenv(
+                "NEXUS_SYNTHETIC_DATABASE",
+                "/opt/nexuschat/data/synthetic-business.sqlite3",
+            )
+        )
+        app.state.data_agent = DataReportAgent(
+            app.state.synthetic_database, app.state.ai_provider
+        )
+        app.state.database_connections = DatabaseConnections(
+            Path(os.getenv('NEXUS_DB_CONNECTION_PATH') or Path(app.state.store.database_path).parent / 'database-connection.json'),
+            app.state.synthetic_database,
+            sqlite_root=Path(os.getenv('NEXUS_EXTERNAL_SQLITE_ROOT') or Path(app.state.store.database_path).parent / 'external-databases'),
+        )
+        app.state.database_connections.bound_count = app.state.store.database_connection_usage
+        app.state.store.bind_legacy_database_chats(app.state.database_connections.default_id())
     app.add_middleware(RequestBodyLimit)
     app.add_middleware(ChatAdmissionLimit, maximum=int(os.getenv('NEXUS_MAX_CONCURRENT_CHATS', '4')))
     app.state.ldap_authenticator = ldap_authenticator or LDAPAuthenticator(
@@ -281,6 +282,25 @@ def create_app(
         else os.getenv("NEXUS_SECURE_COOKIES", "1") == "1"
     )
     app.state.limiter = SlidingWindowLimiter()
+
+    @app.middleware('http')
+    async def rag_only_boundary(request: Request, call_next):
+        if os.getenv('NEXUS_RAG_ONLY') == '1':
+            path = request.url.path
+            if any(path == prefix or path.startswith(prefix + '/') for prefix in (
+                '/api/data', '/api/infra', '/api/admin/data', '/api/admin/infra',
+            )):
+                return JSONResponse({'detail': 'Not available in RAG-only edition.'}, status_code=404)
+            if path.startswith('/api/conversations'):
+                mode = request.query_params.get('agent_mode', 'general')
+                if request.method in ('POST', 'PUT', 'PATCH'):
+                    try:
+                        mode = (await request.json()).get('agent_mode', mode)
+                    except (ValueError, AttributeError):
+                        pass
+                if mode != 'general':
+                    return JSONResponse({'detail': 'Only RAG chats are available.'}, status_code=404)
+        return await call_next(request)
     app.state.runtime = runtime
 
     @app.exception_handler(StorageQuotaExceeded)
@@ -490,16 +510,18 @@ def create_app(
     @app.get("/api/capabilities")
     def capabilities(user: dict[str, Any] = Depends(current_user)):
         settings = app.state.store.get_settings()
-        infra_enabled = settings.get("infra_agent_enabled") == "1"
+        rag_only = os.getenv('NEXUS_RAG_ONLY') == '1'
+        infra_enabled = not rag_only and settings.get("infra_agent_enabled") == "1"
         infra_admin_only = settings.get("infra_agent_admin_only", "1") == "1"
         infra_available = infra_enabled and (
             user["role"] == "admin" or not infra_admin_only
         )
-        data_enabled = settings.get("data_agent_enabled", "1") == "1"
+        data_enabled = not rag_only and settings.get("data_agent_enabled", "1") == "1"
         data_admin_only = settings.get("data_agent_admin_only", "0") == "1"
         return {
+            "rag_only": rag_only,
             "model": settings["model"],
-            "rag_enabled": settings.get("rag_enabled") == "1",
+            "rag_enabled": rag_only or settings.get("rag_enabled") == "1",
             "infra_agent_available": infra_available,
             "infra_live_available": (
                 infra_available
@@ -667,9 +689,11 @@ def create_app(
             {"role": "user", "content": content},
         ]
         system_prompt = settings["system_prompt"]
+        if os.getenv('NEXUS_RAG_ONLY') == '1':
+            system_prompt += '\nYou are a document-grounded RAG assistant. Answer from the supplied knowledge base, cite [KB:filename#chunk], and say clearly when the documents do not contain sufficient evidence. Do not invent document facts. Reply in the language of the user question.'
         model = settings["model"]
         rag_sources: list[dict[str, Any]] = []
-        if settings.get("rag_enabled") == "1" and payload.agent_mode != "data":
+        if (os.getenv('NEXUS_RAG_ONLY') == '1' or settings.get("rag_enabled") == "1") and payload.agent_mode != "data":
             rag_started = time.monotonic()
             chunks = app.state.store.search_rag(
                 content, int(settings.get("rag_max_chunks", "6"))
@@ -932,10 +956,12 @@ def create_app(
             {"role": "user", "content": content},
         ]
         system_prompt = settings["system_prompt"]
+        if os.getenv('NEXUS_RAG_ONLY') == '1':
+            system_prompt += '\nYou are a document-grounded RAG assistant. Answer from the supplied knowledge base, cite [KB:filename#chunk], and say clearly when the documents do not contain sufficient evidence. Do not invent document facts. Reply in the language of the user question.'
         model = settings["model"]
         rag_sources: list[dict[str, Any]] = []
         rag_ms = 0.0
-        if settings.get("rag_enabled") == "1":
+        if os.getenv('NEXUS_RAG_ONLY') == '1' or settings.get("rag_enabled") == "1":
             rag_started = time.monotonic()
             chunks = app.state.store.search_rag(
                 content, int(settings.get("rag_max_chunks", "6"))

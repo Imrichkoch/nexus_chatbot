@@ -1402,3 +1402,14 @@ td { padding: 13px 10px; border-bottom: 1px solid rgba(213,255,230,.07); font-si
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Standalone local RAG edition: no unrelated workspaces or admin controls. */
+body.rag-only .admin-card--infra,
+body.rag-only .admin-card--data,
+body.rag-only .admin-card--ldap,
+body.rag-only #agent-switcher,
+body.rag-only #infra-source-switcher,
+body.rag-only #infra-server-switcher,
+body.rag-only #data-source-switcher,
+body.rag-only label:has(#rag-enabled) { display: none !important; }
+body.rag-only #rag-embedding-status { overflow-wrap: anywhere; min-width: 0; }

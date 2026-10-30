@@ -792,6 +792,15 @@ async function enterWorkspace() {
 async function loadCapabilities() {
   try {
     state.capabilities = await api("/capabilities");
+    if (state.capabilities.rag_only) {
+      document.body.classList.add('rag-only');
+      document.title = 'Nexus RAG';
+      $('#sidebar-model').textContent = state.capabilities.model;
+      $('#rag-enabled').checked = true;
+      $('#rag-enabled').disabled = true;
+      state.agentMode = 'general';
+      return;
+    }
     const sources = await api('/data/connections');
     const infraSources = await api('/infra/connections');
     state.databaseChoices = sources.connections;
@@ -825,7 +834,24 @@ function conversationsFor(mode = state.agentMode) {
 function updateAgentWorkspaceUI(mode) {
   renderDatabaseChooser();
   renderInfraServerChooser();
-  const baseWorkspace = agentWorkspaces()[mode];
+  let baseWorkspace = agentWorkspaces()[mode];
+  if (state.capabilities.rag_only) {
+    const sk = state.language === 'sk';
+    baseWorkspace = { ...baseWorkspace,
+      historyLabel: sk ? 'RAG HISTÓRIA' : 'RAG HISTORY', sectionLabel: 'RAG CHAT',
+      emptyEyebrow: 'NEXUS RAG / LOCAL EMBEDDINGS',
+      emptyTitleLead: sk ? 'Čo potrebujete' : 'What do you need',
+      emptyTitleAccent: sk ? 'nájsť v dokumentoch?' : 'from your documents?',
+      emptyDescription: sk ? 'Pýtajte sa na nahraté dokumenty. Odpovede obsahujú odkazy na zdroje.' : 'Ask about uploaded documents. Answers include source references.',
+      placeholder: sk ? 'Otázka k dokumentom…' : 'Ask about your documents…',
+      disclaimer: sk ? 'Odpovede sú založené na znalostnej báze. Overte si citované zdroje.' : 'Answers are grounded in your knowledge base. Verify cited sources.',
+      prompts: [
+        {index: '01 / RAG', title: sk ? 'Zhrnúť dokumenty' : 'Summarize documents', detail: sk ? 'Prehľad so zdrojmi →' : 'Overview with sources →', prompt: sk ? 'Zhrň hlavné témy v znalostnej báze a cituj zdroje.' : 'Summarize the main topics in the knowledge base and cite sources.'},
+        {index: '02 / RAG', title: sk ? 'Nájsť postup' : 'Find a procedure', detail: sk ? 'Kroky podľa dokumentov →' : 'Documented steps →', prompt: sk ? 'Aké postupy sú popísané v dokumentoch? Uveď ich názvy a zdroje.' : 'Which procedures are documented? List their names and sources.'},
+        {index: '03 / RAG', title: sk ? 'Porovnať zdroje' : 'Compare sources', detail: sk ? 'Rozdiely a zhody →' : 'Differences and similarities →', prompt: sk ? 'Porovnaj dokumenty v znalostnej báze a upozorni na prípadné rozpory so zdrojmi.' : 'Compare the knowledge base documents and flag any contradictions with citations.'},
+      ],
+    };
+  }
   const workspace = mode === "infra" && state.infraSource === "live"
     ? { ...baseWorkspace, ...liveInfraUi() }
     : baseWorkspace;
@@ -1408,6 +1434,33 @@ async function loadAdmin() {
   if (state.user?.role !== "admin") return;
   $("#admin-view").setAttribute("aria-busy", "true");
   try {
+    if (state.capabilities.rag_only) {
+      const [overview, users, settings, rag, embeddings] = await Promise.all([
+        api('/admin/overview'), api('/admin/users'), api('/admin/settings'),
+        api('/admin/rag/documents'), api('/admin/rag/embeddings'),
+      ]);
+      $('#metric-users').textContent = overview.users_total;
+      $('#metric-active').textContent = overview.users_active;
+      $('#metric-chats').textContent = overview.conversations_total;
+      $('#metric-messages').textContent = overview.messages_total;
+      $('#users-status').textContent = t('accountsCount', {count: users.length});
+      renderUsers(users);
+      if (!state.settingsDirty) {
+        $('#settings-model').value = settings.model;
+        $('#settings-prompt').value = settings.system_prompt;
+        $('#rag-enabled').checked = true;
+        $('#rag-max-chunks').value = settings.rag_max_chunks;
+      }
+      $('#api-status').textContent = settings.api_configured ? 'API ONLINE' : 'API MISSING';
+      state.ragMaxDocuments = rag.capacity?.max_documents || 1000;
+      renderDocuments(rag.documents);
+      if (rag.capacity) $('#rag-capacity').textContent = t('ragCapacity', {
+        count: rag.capacity.documents, max: rag.capacity.max_documents,
+      });
+      renderRagEmbeddingStatus(embeddings);
+      loadModelCatalog();
+      return;
+    }
     const [overview, users, settings, rag, ragEmbeddings, infra, dataSchema, ldap, databaseConnection, profiles, infraProfiles] = await Promise.all([
       api("/admin/overview"),
       api("/admin/users"),
@@ -2182,6 +2235,15 @@ async function copyAdminPassword() {
 }
 
 function settingsPayload() {
+  if (state.capabilities.rag_only) return {
+    model: $('#settings-model').value.trim(),
+    system_prompt: $('#settings-prompt').value.trim(),
+    rag_enabled: true,
+    rag_max_chunks: Number($('#rag-max-chunks').value),
+    infra_agent_enabled: false, infra_agent_admin_only: true,
+    infra_live_enabled: false, infra_model: 'disabled',
+    data_agent_enabled: false, data_agent_admin_only: true, data_model: 'disabled',
+  };
   return {
     model: $("#settings-model").value.trim(),
     system_prompt: $("#settings-prompt").value.trim(),

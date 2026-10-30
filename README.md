@@ -170,6 +170,15 @@ For a Nexus or Infra question, `fts_query()` extracts up to 12 meaningful query 
 
 ### Local hybrid embeddings
 
+The Windows launcher now starts the **standalone RAG edition** with
+`NEXUS_RAG_ONLY=1`: one document-grounded chat, document uploads, local embeddings,
+model/prompt settings and user administration. Infra/Data workspaces and their
+admin cards are excluded; their API endpoints and non-general conversation
+requests return 404. RAG is always active in this edition. Existing users and
+documents are preserved. The production multi-agent edition is unchanged unless
+this environment flag is explicitly enabled. To verify the standalone interface,
+run `python tests/rag_only_ui_smoke.py`.
+
 Set `NEXUS_RAG_EMBEDDINGS_ENABLED=1` to add local semantic retrieval. Nexus uses
 FastEmbed with the multilingual ONNX model
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`; document chunks
